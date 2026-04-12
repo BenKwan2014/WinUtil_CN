@@ -1,90 +1,98 @@
-# WinUtil 中文汉化版 — 2026-01-03/Release 25.12.18同步版本
-<img width="2000" height="1583" alt="PixPin_2026-01-03_12-08-32" src="https://github.com/user-attachments/assets/fa871cb1-4d96-4f2e-9a9d-99730a720812" />
-<img width="2018" height="1285" alt="PixPin_2026-01-05_14-51-01" src="https://github.com/user-attachments/assets/e30b0920-273c-4af9-b445-c674adf85c45" />
-<img width="2018" height="1285" alt="PixPin_2026-01-05_14-51-12" src="https://github.com/user-attachments/assets/ffd4a92c-d0c2-4cb0-a29f-b18e3493020e" />
-<img width="2018" height="1285" alt="PixPin_2026-01-05_14-51-29" src="https://github.com/user-attachments/assets/95d505ab-1113-4593-8dc3-191ec53ca0b0" />
+# WinUtil_CN | WinUtil 中文汉化版 | Chris Titus Tech WinUtil 中文版
 
+WinUtil_CN 是 **Chris Titus Tech WinUtil** 的**中文汉化版 / 中文注释版 / 中文说明版**。这个仓库面向中文用户，提供 **WinUtil 中文界面、WinUtil 中文说明、WinUtil Tweaks 中文解释、Win11ISO 中文说明**，方便理解每个优化项、系统修复项、更新策略项和镜像制作项的实际作用。
 
+This repository is a **Chinese localization of Chris Titus Tech WinUtil**. It keeps the upstream WinUtil logic intact as much as possible, while translating user-facing text and adding Chinese explanations for Windows tweaks, repair options, update policies, and Win11ISO workflow.
 
-首先非常感谢 Chris Titus Tech 以及所有贡献者开发并维护 WinUtil。这个工具把“安装软件 / 系统优化 / 修复 / 更新策略 / MicroWin”等常用功能整合得非常清晰，对普通用户也很友好。
+当前同步版本：**WinUtil Release 26.04.02**  
+当前中文维护日期：**2026-04-12**
 
-为方便中文用户理解每个选项的意义，我基于 **2026-01-03 我同步到的 WinUtil 版本**制作了一个 **中文汉化 + 功能说明**版本，并开放给社区使用与共同维护。
+<img width="2000" height="1583" alt="WinUtil_CN 中文界面截图 1" src="https://github.com/user-attachments/assets/fa871cb1-4d96-4f2e-9a9d-99730a720812" />
+<img width="2018" height="1285" alt="WinUtil_CN 中文界面截图 2" src="https://github.com/user-attachments/assets/e30b0920-273c-4af9-b445-c674adf85c45" />
+<img width="2018" height="1285" alt="WinUtil_CN 中文界面截图 3" src="https://github.com/user-attachments/assets/ffd4a92c-d0c2-4cb0-a29f-b18e3493020e" />
+<img width="2018" height="1285" alt="WinUtil_CN 中文界面截图 4" src="https://github.com/user-attachments/assets/95d505ab-1113-4593-8dc3-191ec53ca0b0" />
 
-> 免责声明：  
-> - 本汉化版为个人维护的**非官方**版本，与上游无隶属关系。  
-> - 我尽量只翻译 UI 文本与说明，不改动功能逻辑；但系统优化类工具仍存在风险，请自行评估并做好备份。  
-> - 如你更信任上游，请以官方版本为准。
+## WinUtil_CN 是什么
 
----
+- `WinUtil_CN` 是 `WinUtil` 的中文维护分支，不是官方版本。
+- 上游项目是 `Chris Titus Tech / WinUtil`。
+- 这个仓库主要做两件事：保留上游功能逻辑，补充中文 UI 和中文解释。
+- 适合搜索这些关键词的用户：`WinUtil_CN`、`WinUtil 中文`、`WinUtil 汉化`、`Chris Titus Tech WinUtil 中文版`、`WinUtil Tweaks 中文说明`。
 
+## 仓库定位
 
+- 尽量不改动功能逻辑，不修改注册表路径、命令、参数、内部键名与逻辑分支。
+- 主要修改用户可见文本，包括按钮、标签、说明、提示、部分弹窗、配置层文案。
+- 优先在配置层维护翻译，减少后续跟上游同步时的合并冲突。
 
-## 使用方法（建议）
+> 免责声明：
+> - 本项目为个人维护的**非官方 WinUtil 中文汉化版**，与上游无隶属关系。
+> - 我尽量只翻译与解释用户可见文本，但 WinUtil 涉及系统优化、注册表、服务、更新策略等操作，使用前请先备份。
+> - 如你更信任原作者版本，请以上游官方仓库为准。
 
-###  一。傻瓜式
-powershell管理员执行
+## 使用方法
+
+### 1. 直接运行
+
+管理员 PowerShell 执行：
 
 ```powershell
-irm "https://raw.githubusercontent.com/constansino/WinUtil_CN/refs/heads/main/winutil.zh_CN.commented.20260103.ps1" | iex
-````
-### 二。更推荐的方式：下载到本地后运行（更安全、可审计）
-1. 下载汉化版脚本到本地（`winutil.zh_CN...ps1`）
-2. 打开 PowerShell（建议管理员权限）
-3. 解除“来自互联网文件”的锁定（避免无法运行/闪退）：
+irm "https://raw.githubusercontent.com/constansino/WinUtil_CN/refs/heads/main/winutil.zh_CN.commented.20260412.ps1" | iex
+```
+
+### 2. 下载到本地后运行
 
 ```powershell
-Unblock-File -Path ""你的目录\winutil.zh_CN.commented.20260103.ps1""
+Unblock-File -Path "你的目录\winutil.zh_CN.commented.20260412.ps1"
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-.\winutil.zh_CN.commented.20260103.ps1
-````
+.\winutil.zh_CN.commented.20260412.ps1
+```
 
-> 为什么要 Unblock-File：
-> Windows 会对从浏览器下载的脚本打上“Mark of the Web”，导致执行被限制或出现各种异常。解除锁定后更稳定。
+说明：
+- `Unblock-File` 用于移除下载脚本的 Mark of the Web，避免 PowerShell 执行限制或闪退。
+- 更推荐本地运行方式，因为更容易审计脚本内容。
 
----
+## 汉化内容
 
-## 汉化范围（已完成）
+### 1. 顶部导航和常用按钮
 
-### 1) UI 顶部导航与通用按钮
-- Install / Tweaks / Config / Updates / MicroWin 等导航标签
-- 常用按钮、提示文本、部分弹窗提示
+- `Install / Tweaks / Config / Updates / Win11ISO` 已补充中文标签和常用提示。
 
-### 2) Tweaks 页面（重点）
-- **功能项标题：中文化**
-- **功能项解释：补充中文说明**（帮助理解“这个开关到底改了什么，会影响什么”）
-- 分组标题与注意事项（例如 Advanced Tweaks - CAUTION）
+### 2. Tweaks 页面重点汉化
 
-> 说明：WinUtil 的很多条目不是写死在 XAML 里，而是来自脚本内部的配置（例如 tweaks 配置集合）。因此单纯汉化 XAML 会“看起来只翻了少量文字”。本汉化版把“配置层的条目标题/说明”也一起做了中文化。
+- Tweaks 项目标题中文化。
+- Tweaks 项目说明中文化。
+- 对很多项目补了更适合中文用户理解的说明，帮助判断“这个开关到底改了什么、有什么风险”。
 
-### 3) 其他页面（逐步完善中）
-- Install / Config / Updates / MicroWin：已汉化常用区域的标题与说明
-- 软件条目名称（例如 7-Zip、VS Code）通常保留产品英文名，避免用户对照困难
+### 3. 其他页面
 
----
+- `Install / Config / Updates / Win11ISO` 已补充常用区域的中文说明。
+- 软件名称如 `7-Zip`、`VS Code`、`PowerShell 7` 通常保留原产品名，避免对照困难。
 
+## 上游同步策略
 
-## 后续维护汉化的方法（给贡献者）
+为了尽量降低与上游 `WinUtil` 合并冲突，本仓库遵循以下做法：
 
-为了尽量降低与上游合并冲突，本汉化遵循以下原则：
+1. 不改功能逻辑，只改用户可见文本。
+2. 优先维护配置层字段，例如 `Title / Description / Content / category`。
+3. 上游更新后，先同步官方脚本，再迁移中文字段，最后补新版新增项的翻译。
+4. 同时保留完整 patch，方便后续复用和审查。
 
-1. **不改动功能逻辑**
-   不改注册表路径、命令、参数、键名、逻辑分支；只处理用户可见文本（标题/描述/提示）。
+## 文件说明
 
-2. **优先在“配置层”维护翻译**
-   WinUtil 很多 UI 文本来自配置集合（例如 tweaks 项的 Title/Description）。
-   因此维护时建议只更新对应配置项的显示字段，而不是改内部 key/逻辑判断字段。
+- `winutil.zh_CN.commented.20260412.ps1`：当前中文注释 + 中文界面维护版本
+- `winutil.zh_CN.full.patch.20260412.diff`：基于上游 `26.04.02` 生成的完整 patch
 
-3. **建议用 patch / diff 方式维护**
+## 上游项目
 
-   * 上游更新后先同步原版脚本
-   * 再应用汉化 patch
-   * 对照冲突位置补齐新增条目的翻译
+- 上游仓库：[ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil)
+- 上游发布页：[WinUtil Releases](https://github.com/ChrisTitusTech/winutil/releases)
+- 当前同步上游版本：[26.04.02](https://github.com/ChrisTitusTech/winutil/releases/tag/26.04.02)
 
-如果你希望参与维护：
+## 贡献方式
 
-* 提交 PR 增补新条目的中文解释
-* 或提交 issue 标注“哪一项翻译/解释不准确、需要更好的中文描述”
+- 提交 PR，补充新条目的中文翻译或更准确的中文说明。
+- 提交 issue，指出某个 Tweaks/Feature/Win11ISO 项目的翻译不准确或解释不清楚。
+- 如果上游更新了新版本，也欢迎提交同步 PR。
 
----
-
-再次感谢上游开发者与社区贡献者！
+再次感谢上游开发者与社区贡献者。
