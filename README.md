@@ -4,8 +4,8 @@ WinUtil_CN 是 **Chris Titus Tech WinUtil** 的**中文汉化版 / 中文注释�
 
 This repository is a **Chinese localization of Chris Titus Tech WinUtil**. It keeps the upstream WinUtil logic intact as much as possible, while translating user-facing text and adding Chinese explanations for Windows tweaks, repair options, update policies, and Win11ISO workflow.
 
-当前同步版本：**WinUtil Release 26.04.02**  
-当前中文维护日期：**2026-04-12**
+当前同步版本：**WinUtil Release 26.04.21**  
+当前中文维护日期：**2026-05-10**
 
 <img width="2000" height="1583" alt="WinUtil_CN 中文界面截图 1" src="https://github.com/user-attachments/assets/fa871cb1-4d96-4f2e-9a9d-99730a720812" />
 <img width="2018" height="1285" alt="WinUtil_CN 中文界面截图 2" src="https://github.com/user-attachments/assets/e30b0920-273c-4af9-b445-c674adf85c45" />
@@ -32,20 +32,32 @@ This repository is a **Chinese localization of Chris Titus Tech WinUtil**. It ke
 
 ## 使用方法
 
-### 1. 直接运行
+### 1. 直接运行（推荐）
 
 管理员 PowerShell 执行：
 
 ```powershell
-irm "https://raw.githubusercontent.com/constansino/WinUtil_CN/refs/heads/main/winutil.zh_CN.commented.20260412.ps1" | iex
+irm "https://github.com/constansino/WinUtil_CN/releases/latest/download/winutil.zh_CN.ps1" | iex
+```
+
+如果上面的 GitHub Release 下载链接不可用，可以改用 jsDelivr 备用 CDN：
+
+```powershell
+irm "https://cdn.jsdelivr.net/gh/constansino/WinUtil_CN@main/winutil.zh_CN.ps1" | iex
+```
+
+如果你所在网络能直接访问 `raw.githubusercontent.com`，也可以使用仓库 raw 链接：
+
+```powershell
+irm "https://raw.githubusercontent.com/constansino/WinUtil_CN/refs/heads/main/winutil.zh_CN.ps1" | iex
 ```
 
 ### 2. 下载到本地后运行
 
 ```powershell
-Unblock-File -Path "你的目录\winutil.zh_CN.commented.20260412.ps1"
+Unblock-File -Path "你的目录\winutil.zh_CN.ps1"
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-.\winutil.zh_CN.commented.20260412.ps1
+.\winutil.zh_CN.ps1
 ```
 
 说明：
@@ -80,14 +92,15 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 ## 文件说明
 
-- `winutil.zh_CN.commented.20260412.ps1`：当前中文注释 + 中文界面维护版本
-- `winutil.zh_CN.full.patch.20260412.diff`：基于上游 `26.04.02` 生成的完整 patch
+- `winutil.zh_CN.ps1`：稳定文件名，始终指向当前推荐运行版本
+- `winutil.zh_CN.commented.20260510.ps1`：当前中文注释 + 中文界面维护版本
+- `winutil.zh_CN.full.patch.20260510.diff`：基于上游 `26.04.21` 生成的完整 patch
 
 ## 上游项目
 
 - 上游仓库：[ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil)
 - 上游发布页：[WinUtil Releases](https://github.com/ChrisTitusTech/winutil/releases)
-- 当前同步上游版本：[26.04.02](https://github.com/ChrisTitusTech/winutil/releases/tag/26.04.02)
+- 当前同步上游版本：[26.04.21](https://github.com/ChrisTitusTech/winutil/releases/tag/26.04.21)
 
 ## 贡献方式
 

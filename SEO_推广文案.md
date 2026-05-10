@@ -18,13 +18,13 @@
 
 标题建议：
 
-`WinUtil_CN：Chris Titus Tech WinUtil 中文汉化版，同步 26.04.02`
+`WinUtil_CN：Chris Titus Tech WinUtil 中文汉化版，同步 26.04.21`
 
 简介正文：
 
 `这是我持续维护的 WinUtil_CN，也就是 Chris Titus Tech WinUtil 的中文汉化版。主要做的是 WinUtil 中文界面、Tweaks 中文说明、Updates 中文提示、Win11ISO 中文说明，尽量不改功能逻辑，只补中文可见文本与解释。`
 
-`这次已经同步到上游 Release 26.04.02。`
+`这次已经同步到上游 Release 26.04.21。`
 
 `GitHub 仓库：`
 `https://github.com/constansino/WinUtil_CN`
@@ -35,7 +35,7 @@
 
 短版：
 
-`WinUtil_CN 已同步到上游 26.04.02。`
+`WinUtil_CN 已同步到上游 26.04.21。`
 
 `这是 Chris Titus Tech WinUtil 的中文汉化版，主要补 WinUtil 中文界面、Tweaks 中文解释、Win11ISO 中文说明。`
 
@@ -43,7 +43,7 @@
 
 长版：
 
-`把 WinUtil_CN 更新到上游 Release 26.04.02 了。`
+`把 WinUtil_CN 更新到上游 Release 26.04.21 了。`
 
 `这个仓库本质上是 Chris Titus Tech WinUtil 的中文汉化维护版，尽量不动功能逻辑，只翻译用户可见文本，并给 Tweaks / Updates / Win11ISO 这些页面补中文说明，方便中文用户理解每个选项到底改了什么。`
 
@@ -55,11 +55,11 @@
 
 标题建议 1：
 
-`[开源] WinUtil_CN：Chris Titus Tech WinUtil 中文汉化版，已同步 26.04.02`
+`[开源] WinUtil_CN：Chris Titus Tech WinUtil 中文汉化版，已同步 26.04.21`
 
 标题建议 2：
 
-`WinUtil_CN 更新：WinUtil 中文汉化版同步到 26.04.02`
+`WinUtil_CN 更新：WinUtil 中文汉化版同步到 26.04.21`
 
 正文：
 
@@ -67,7 +67,7 @@
 
 `项目地址：https://github.com/constansino/WinUtil_CN`
 
-`这个版本已经同步到上游 Release 26.04.02。`
+`这个版本已经同步到上游 Release 26.04.21。`
 
 `我这边的维护原则比较简单：`
 - `尽量不改功能逻辑`
@@ -82,7 +82,7 @@
 
 标题建议：
 
-`WinUtil 有中文汉化版吗？有，WinUtil_CN 已同步到 26.04.02`
+`WinUtil 有中文汉化版吗？有，WinUtil_CN 已同步到 26.04.21`
 
 正文：
 
@@ -92,7 +92,7 @@
 
 `它是基于 Chris Titus Tech WinUtil 做的中文汉化维护版，主要补的是中文界面和中文解释，尤其是 Tweaks、Updates、Win11ISO 这些页面，能更清楚地看到每个选项的作用和风险。`
 
-`当前同步版本是上游 Release 26.04.02。`
+`当前同步版本是上游 Release 26.04.21。`
 
 `如果你搜索的是 WinUtil_CN、WinUtil 中文、Chris Titus Tech WinUtil 中文版，基本认这个仓库就可以。`
 
@@ -100,7 +100,7 @@
 
 版本 A：
 
-`WinUtil_CN 更新到 26.04.02 了。`
+`WinUtil_CN 更新到 26.04.21 了。`
 
 `这是 Chris Titus Tech WinUtil 的中文汉化版，补了 WinUtil 中文界面、Tweaks 中文说明、Win11ISO 中文提示。`
 
@@ -112,20 +112,20 @@
 
 `GitHub：https://github.com/constansino/WinUtil_CN`
 
-`目前已同步上游 26.04.02。`
+`目前已同步上游 26.04.21。`
 
 ## 6. GitHub Release 文案
 
 标题：
 
-`WinUtil_CN 2026-04-12 / Sync upstream 26.04.02`
+`WinUtil_CN 2026-05-10 / Sync upstream 26.04.21`
 
 正文：
 
-`WinUtil_CN 已同步到上游 Chris Titus Tech WinUtil Release 26.04.02。`
+`WinUtil_CN 已同步到上游 Chris Titus Tech WinUtil Release 26.04.21。`
 
 `本次更新内容：`
-- `同步上游 26.04.02 主脚本`
+- `同步上游 26.04.21 主脚本`
 - `迁移旧版中文翻译到新版结构`
 - `补充新版新增 Tweaks / Features 的中文文案`
 - `补充 Win11ISO 新页面的中文说明`

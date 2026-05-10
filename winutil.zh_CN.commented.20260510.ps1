@@ -3,7 +3,7 @@
     Author         : Chris Titus @christitustech
     Runspace Author: @DeveloperDurp
     GitHub         : https://github.com/ChrisTitusTech
-    Version        : 26.04.02
+    Version        : 26.04.21
 #>
 
 <#
@@ -59,6 +59,10 @@ if ($Offline) {
     $PARAM_OFFLINE = $true
 }
 
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+    Write-Host "WinUtil is unable to run on your system, powershell execution is restricted by security policies" -ForegroundColor Red
+    return
+}
 
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Output "Winutil 需要以管理员身份运行，正在尝试以管理员权限重新启动。"
@@ -99,7 +103,7 @@ Add-Type -AssemblyName System.Windows.Forms
 # Variable to sync between runspaces
 $sync = [Hashtable]::Synchronized(@{})
 $sync.PSScriptRoot = $PSScriptRoot
-$sync.version = "26.04.02"
+$sync.version = "26.04.21"
 $sync.configs = @{}
 $sync.Buttons = [System.Collections.Generic.List[PSObject]]::new()
 $sync.preferences = @{}
@@ -1361,12 +1365,10 @@ function Install-WinUtilWinget {
     }
 
     Write-Host "WinGet is not installed. Installing now..." -ForegroundColor Red
-    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
 
     Install-PackageProvider -Name NuGet -Force
-    Install-Module Microsoft.WinGet.Client -Force
-    Import-Module Microsoft.WinGet.Client
-    Repair-WinGetPackageManager
+    Install-Module -Name Microsoft.WinGet.Client -Force
+    Repair-WinGetPackageManager -AllUsers
 }
 # [功能说明] Invoke-WinUtilAssets：脚本内部函数（用于组织代码与复用逻辑）。
 function Invoke-WinUtilAssets {
@@ -2441,6 +2443,9 @@ function Invoke-WinUtilISOExport {
     if (-not $oscdimg) {
         Write-Win11ISOLog "oscdimg.exe not found. Attempting to install via winget..."
         try {
+            # First ensure winget is installed and operational
+            Install-WinUtilWinget
+
             $winget = Get-Command winget -ErrorAction Stop
             $result = & $winget install -e --id Microsoft.OSCDIMG --accept-package-agreements --accept-source-agreements 2>&1
             Write-Win11ISOLog "winget output: $result"
@@ -2607,7 +2612,6 @@ function Invoke-WinUtilISOScript {
     .NOTES
         Author  : Chris Titus @christitustech
         GitHub  : https://github.com/ChrisTitusTech
-        Version : 26.03.02
     #>
     param (
         [Parameter(Mandatory)][string]$ScratchDir,
@@ -2673,48 +2677,25 @@ function Invoke-WinUtilISOScript {
         ForEach-Object { if ($_ -match 'PackageName : (.*)') { $matches[1] } }
 
     $packagePrefixes = @(
-        'AppUp.IntelManagementandSecurityStatus',
         'Clipchamp.Clipchamp',
-        'DolbyLaboratories.DolbyAccess',
-        'DolbyLaboratories.DolbyDigitalPlusDecoderOEM',
         'Microsoft.BingNews',
         'Microsoft.BingSearch',
         'Microsoft.BingWeather',
-        'Microsoft.Copilot',
-        'Microsoft.Windows.CrossDevice',
         'Microsoft.GetHelp',
-        'Microsoft.Getstarted',
-        'Microsoft.Microsoft3DViewer',
         'Microsoft.MicrosoftOfficeHub',
         'Microsoft.MicrosoftSolitaireCollection',
         'Microsoft.MicrosoftStickyNotes',
-        'Microsoft.MixedReality.Portal',
-        'Microsoft.MSPaint',
-        'Microsoft.Office.OneNote',
-        'Microsoft.OfficePushNotificationUtility',
         'Microsoft.OutlookForWindows',
         'Microsoft.Paint',
-        'Microsoft.People',
         'Microsoft.PowerAutomateDesktop',
-        'Microsoft.SkypeApp',
         'Microsoft.StartExperiencesApp',
         'Microsoft.Todos',
-        'Microsoft.Wallet',
         'Microsoft.Windows.DevHome',
-        'Microsoft.Windows.Copilot',
-        'Microsoft.Windows.Teams',
-        'Microsoft.WindowsAlarms',
-        'Microsoft.WindowsCamera',
-        'microsoft.windowscommunicationsapps',
         'Microsoft.WindowsFeedbackHub',
-        'Microsoft.WindowsMaps',
         'Microsoft.WindowsSoundRecorder',
         'Microsoft.ZuneMusic',
-        'Microsoft.ZuneVideo',
-        'MicrosoftCorporationII.MicrosoftFamily',
         'MicrosoftCorporationII.QuickAssist',
-        'MSTeams',
-        'MicrosoftTeams'
+        'MSTeams'
     )
 
     $packages | Where-Object { $pkg = $_; $packagePrefixes | Where-Object { $pkg -like "*$_*" } } |
@@ -2750,16 +2731,7 @@ function Invoke-WinUtilISOScript {
         & $Log "Driver injection skipped."
     }
 
-    # ?? 3. Remove OneDrive ????????????????????????????????????????????????????
-    & $Log "Removing OneDrive..."
-    & takeown /f "$ScratchDir\Windows\System32\OneDriveSetup.exe" | Out-Null
-    & icacls    "$ScratchDir\Windows\System32\OneDriveSetup.exe" /grant "$($adminGroup.Value):(F)" /T /C | Out-Null
-    Remove-Item -Path "$ScratchDir\Windows\System32\OneDriveSetup.exe" -Force -ErrorAction SilentlyContinue
-
-    # Remove OneDrive from startup registry
-    Remove-ISOScriptReg 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Run\OneDrive'
-
-    # ?? 4. Registry tweaks ????????????????????????????????????????????????????
+    # ?? 3. Registry tweaks ????????????????????????????????????????????????????
     & $Log "Loading offline registry hives..."
     reg load HKLM\zCOMPONENTS "$ScratchDir\Windows\System32\config\COMPONENTS"
     reg load HKLM\zDEFAULT    "$ScratchDir\Windows\System32\config\default"
@@ -2913,7 +2885,7 @@ function Invoke-WinUtilISOScript {
     reg unload HKLM\zSOFTWARE
     reg unload HKLM\zSYSTEM
 
-    # ?? 5. Delete scheduled task definition files ?????????????????????????????
+    # ?? 4. Delete scheduled task definition files ?????????????????????????????
     & $Log "Deleting scheduled task definition files..."
     $tasksPath = "$ScratchDir\Windows\System32\Tasks"
     Remove-Item "$tasksPath\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser" -Force -ErrorAction SilentlyContinue
@@ -2929,7 +2901,7 @@ function Invoke-WinUtilISOScript {
     Remove-Item "$tasksPath\Microsoft\WindowsUpdate"                                                   -Recurse -Force -ErrorAction SilentlyContinue
     & $Log "Scheduled task files deleted."
 
-    # ?? 6. Remove ISO support folder ?????????????????????????????????????????
+    # ?? 5. Remove ISO support folder ?????????????????????????????????????????
     if ($ISOContentsDir -and (Test-Path $ISOContentsDir)) {
         & $Log "Removing ISO support\ folder..."
         Remove-Item -Path (Join-Path $ISOContentsDir "support") -Recurse -Force -ErrorAction SilentlyContinue
@@ -4731,9 +4703,9 @@ function Invoke-WinUtilAutoRun {
     Write-Host "Done."
 }
 function Invoke-WinUtilRemoveEdge {
-  $Path = Get-ChildItem -Path "$Env:ProgramFiles (x86)\Microsoft\Edge\Application\*\Installer\setup.exe" | Select-Object -First 1
-
   New-Item -Path "$Env:SystemRoot\SystemApps\Microsoft.MicrosoftEdge_8wekyb3d8bbwe\MicrosoftEdge.exe" -Force
+
+  $Path = Resolve-Path -Path "$Env:ProgramFiles (x86)\Microsoft\Edge\Application\*\Installer\setup.exe" | Select-Object -Last 1
   Start-Process -FilePath $Path -ArgumentList '--uninstall --system-level --force-uninstall --delete-profile' -Wait
 
   Write-Host "Microsoft Edge was removed" -ForegroundColor Green
@@ -4797,14 +4769,12 @@ function Invoke-WPFButton {
         "WPFClearInstallSelection" {Invoke-WPFPresets -imported $true -checkboxfilterpattern "WPFInstall*"}
         "WPFtweaksbutton" {Invoke-WPFtweaksbutton}
         "WPFOOSUbutton" {Invoke-WPFOOSU}
-        "WPFAddUltPerf" {Invoke-WPFUltimatePerformance -State "Enable"}
-        "WPFRemoveUltPerf" {Invoke-WPFUltimatePerformance -State "Disable"}
+        "WPFAddUltPerf" {Invoke-WPFUltimatePerformance -Do}
+        "WPFRemoveUltPerf" {Invoke-WPFUltimatePerformance}
         "WPFundoall" {Invoke-WPFundoall}
         "WPFUpdatesdefault" {Invoke-WPFUpdatesdefault}
-        "WPFRunAdobeCCCleanerTool" {Invoke-WPFRunAdobeCCCleanerTool}
         "WPFUpdatesdisable" {Invoke-WPFUpdatesdisable}
         "WPFUpdatessecurity" {Invoke-WPFUpdatessecurity}
-        "WPFWinUtilShortcut" {Invoke-WPFShortcut -ShortcutToAdd "WinUtil" -RunAsAdmin $true}
         "WPFGetInstalled" {Invoke-WPFGetInstalled -CheckBox "winget"}
         "WPFGetInstalledTweaks" {Invoke-WPFGetInstalled -CheckBox "tweaks"}
         "WPFCloseButton" {$sync.Form.Close(); Write-Host "Bye bye!"}
@@ -6379,88 +6349,39 @@ function Invoke-WPFUIThread {
     $sync.form.Dispatcher.Invoke([action]$ScriptBlock)
 }
 # [功能说明] Invoke-WPFUltimatePerformance：脚本内部函数（用于组织代码与复用逻辑）。
-Function Invoke-WPFUltimatePerformance {
-    <#
-
-    .SYNOPSIS
-        Enables or disables the Ultimate Performance power scheme based on its GUID.
-
-    .PARAMETER State
-        Specifies whether to "Enable" or "Disable" the Ultimate Performance power scheme.
-
-    #>
+function Invoke-WPFUltimatePerformance {
     param(
-        [Parameter(Mandatory = $true)]
-        [ValidateSet("Enable", "Disable")]
-        [string]$State
+        [switch]$Do
     )
 
-    try {
-        # GUID of the Ultimate Performance power plan
-        $ultimateGUID = "e9a42b02-d5df-448d-aa00-03f14749eb61"
-
-        switch ($State) {
-            "Enable" {
-                # Duplicate the Ultimate Performance power plan using its GUID
-                $duplicateOutput = powercfg /duplicatescheme $ultimateGUID
-
-                $guid = $null
-                $nameFromFile = "ChrisTitus - Ultimate Power Plan"
-                $description = "Ultimate Power Plan, added via WinUtils"
-
-                # Extract the new GUID from the duplicateOutput
-                foreach ($line in $duplicateOutput) {
-                    if ($line -match "\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b") {
-                        $guid = $matches[0]  # $matches[0] will contain the first match, which is the GUID
-                        Write-Output "GUID: $guid has been extracted and stored in the variable."
-                        break
-                    }
-                }
-
-                if (-not $guid) {
-                    Write-Output "No GUID found in the duplicateOutput. Check the output format."
-                    exit 1
-                }
-
-                # Change the name of the power plan and set its description
-                $changeNameOutput = powercfg /changename $guid "$nameFromFile" "$description"
-                Write-Output "The power plan name and description have been changed. Output:"
-                Write-Output $changeNameOutput
-
-                # Set the duplicated Ultimate Performance plan as active
-                $setActiveOutput = powercfg /setactive $guid
-                Write-Output "The power plan has been set as active. Output:"
-                Write-Output $setActiveOutput
-
-                Write-Host "> Ultimate Performance plan installed and set as active."
-            }
-            "Disable" {
-                # Check if the Ultimate Performance plan is installed by GUID
-                $installedPlan = powercfg -list | Select-String -Pattern "ChrisTitus - Ultimate Power Plan"
-
-                if ($installedPlan) {
-                    # Extract the GUID of the installed Ultimate Performance plan
-                    $ultimatePlanGUID = $installedPlan.Line.Split()[3]
-
-                    # Set a different power plan as active before deleting the Ultimate Performance plan
-                    $balancedPlanGUID = "381b4222-f694-41f0-9685-ff5bb260df2e"
-                    powercfg -setactive $balancedPlanGUID
-
-                    # Delete the Ultimate Performance plan by GUID
-                    powercfg -delete $ultimatePlanGUID
-
-                    Write-Host "Ultimate Performance plan has been uninstalled."
-                    Write-Host "> Balanced plan is now active."
-                } else {
-                    Write-Host "Ultimate Performance plan is not installed."
+    if ($Do) {
+        if (-not (powercfg /list | Select-String "ChrisTitus - Ultimate Power Plan")) {
+            if (-not (powercfg /list | Select-String "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c")) {
+                powercfg /restoredefaultschemes
+                if (-not (powercfg /list | Select-String "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c")) {
+                    Write-Host "Failed to restore High Performance plan. Default plans do not include high performance. If you are on a laptop, do NOT use High Performance or Ultimate Performance plans." -ForegroundColor Red
+                    return
                 }
             }
-            default {
-                Write-Host "Invalid state. Please use 'Enable' or 'Disable'."
-            }
+            $guid = ((powercfg /duplicatescheme 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c) -split '\s+')[3]
+            powercfg /changename $guid "ChrisTitus - Ultimate Power Plan"
+            powercfg /setacvalueindex $guid SUB_PROCESSOR IDLEDISABLE 1
+            powercfg /setacvalueindex $guid 54533251-82be-4824-96c1-47b60b740d00 4d2b0152-7d5c-498b-88e2-34345392a2c5 1
+            powercfg /setacvalueindex $guid SUB_PROCESSOR PROCTHROTTLEMIN 100
+            powercfg /setactive $guid
+            Write-Host "ChrisTitus - Ultimate Power Plan plan installed and activated." -ForegroundColor Green
+        } else {
+            Write-Host "ChrisTitus - Ultimate Power Plan plan is already installed." -ForegroundColor Red
+            return
         }
-    } catch {
-        Write-Error "Error occurred: $_"
+    } else {
+        if (powercfg /list | Select-String "ChrisTitus - Ultimate Power Plan") {
+            powercfg /setactive SCHEME_BALANCED
+            powercfg /delete ((powercfg /list | Select-String "ChrisTitus - Ultimate Power Plan").ToString().Split()[3])
+            Write-Host "ChrisTitus - Ultimate Power Plan plan was removed." -ForegroundColor Red
+        } else {
+            Write-Host "ChrisTitus - Ultimate Power Plan plan is not installed." -ForegroundColor Yellow
+        }
     }
 }
 # [功能说明] Invoke-WPFundoall：回滚/撤销之前应用的更改（按所选项恢复相关设置）。
@@ -6787,7 +6708,8 @@ $sync.configs.applications = @'
     "content": "1Password",
     "description": "1Password is a password manager that allows you to store and manage your passwords securely.",
     "link": "https://1password.com/",
-    "winget": "AgileBits.1Password"
+    "winget": "AgileBits.1Password",
+    "foss": false
   },
   "WPFInstall7zip": {
     "category": "Utilities",
@@ -6804,7 +6726,8 @@ $sync.configs.applications = @'
     "content": "Adobe Acrobat Reader",
     "description": "Adobe Acrobat Reader is a free PDF viewer with essential features for viewing, printing, and annotating PDF documents.",
     "link": "https://www.adobe.com/acrobat/pdf-reader.html",
-    "winget": "Adobe.Acrobat.Reader.64-bit"
+    "winget": "Adobe.Acrobat.Reader.64-bit",
+    "foss": false
   },
   "WPFInstalladvancedip": {
     "category": "Pro Tools",
@@ -6812,7 +6735,8 @@ $sync.configs.applications = @'
     "content": "Advanced IP Scanner",
     "description": "Advanced IP Scanner is a fast and easy-to-use network scanner. It is designed to analyze LAN networks and provides information about connected devices.",
     "link": "https://www.advanced-ip-scanner.com/",
-    "winget": "Famatech.AdvancedIPScanner"
+    "winget": "Famatech.AdvancedIPScanner",
+    "foss": false
   },
   "WPFInstallaffine": {
     "category": "Document",
@@ -6838,7 +6762,8 @@ $sync.configs.applications = @'
     "content": "AIMP (Music Player)",
     "description": "AIMP is a feature-rich music player with support for various audio formats, playlists, and customizable user interface.",
     "link": "https://www.aimp.ru/",
-    "winget": "AIMP.AIMP"
+    "winget": "AIMP.AIMP",
+    "foss": false
   },
   "WPFInstallalacritty": {
     "category": "Utilities",
@@ -6855,7 +6780,8 @@ $sync.configs.applications = @'
     "content": "Anaconda",
     "description": "Anaconda is a distribution of the Python and R programming languages for scientific computing.",
     "link": "https://www.anaconda.com/products/distribution",
-    "winget": "Anaconda.Anaconda3"
+    "winget": "Anaconda.Anaconda3",
+    "foss": false
   },
   "WPFInstallangryipscanner": {
     "category": "Pro Tools",
@@ -6881,7 +6807,8 @@ $sync.configs.applications = @'
     "content": "AnyDesk",
     "description": "AnyDesk is a remote desktop software that enables users to access and control computers remotely. It is known for its fast connection and low latency.",
     "link": "https://anydesk.com/",
-    "winget": "AnyDesk.AnyDesk"
+    "winget": "AnyDesk.AnyDesk",
+    "foss": false
   },
   "WPFInstallanythingllm": {
     "category": "AI-Automation",
@@ -6907,7 +6834,8 @@ $sync.configs.applications = @'
     "content": "Autoruns",
     "description": "This utility shows you what programs are configured to run during system bootup or login.",
     "link": "https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns",
-    "winget": "Microsoft.Sysinternals.Autoruns"
+    "winget": "Microsoft.Sysinternals.Autoruns",
+    "foss": false
   },
   "WPFInstallrdcman": {
     "category": "Microsoft Tools",
@@ -6915,7 +6843,8 @@ $sync.configs.applications = @'
     "content": "RDCMan",
     "description": "RDCMan manages multiple remote desktop connections. It is useful for managing server labs where you need regular access to each machine such as automated checkin systems and data centers.",
     "link": "https://learn.microsoft.com/en-us/sysinternals/downloads/rdcman",
-    "winget": "Microsoft.Sysinternals.RDCMan"
+    "winget": "Microsoft.Sysinternals.RDCMan",
+    "foss": false
   },
   "WPFInstallautohotkey": {
     "category": "Utilities",
@@ -6932,7 +6861,7 @@ $sync.configs.applications = @'
     "content": "AutoIt",
     "description": "Windows GUI automation scripting tool (freeware) used to automate keystrokes, mouse actions, and window/control interactions.",
     "link": "https://www.autoitscript.com/site/autoit/",
-    "winget": "na",
+    "winget": "AutoIt.AutoIt",
     "foss": false
   },
   "WPFInstallazuredatastudio": {
@@ -6941,7 +6870,8 @@ $sync.configs.applications = @'
     "content": "Microsoft Azure Data Studio",
     "description": "Azure Data Studio is a data management tool that enables you to work with SQL Server, Azure SQL DB and SQL DW from Windows, macOS and Linux.",
     "link": "https://docs.microsoft.com/sql/azure-data-studio/what-is-azure-data-studio",
-    "winget": "Microsoft.AzureDataStudio"
+    "winget": "Microsoft.Azure.DataStudio",
+    "foss": true
   },
   "WPFInstallbarrier": {
     "category": "Utilities",
@@ -6967,7 +6897,8 @@ $sync.configs.applications = @'
     "content": "Beeper",
     "description": "All your chats in one app.",
     "link": "https://www.beeper.com/",
-    "winget": "Beeper.Beeper"
+    "winget": "Beeper.Beeper",
+    "foss": false
   },
   "WPFInstallbitwarden": {
     "category": "Utilities",
@@ -7020,7 +6951,8 @@ $sync.configs.applications = @'
     "content": "Bulk Rename Utility",
     "description": "Bulk Rename Utility allows you to easily rename files and folders recursively based upon find-replace, character place, fields, sequences, regular expressions, EXIF data, and more.",
     "link": "https://www.bulkrenameutility.co.uk",
-    "winget": "TGRMNSoftware.BulkRenameUtility"
+    "winget": "TGRMNSoftware.BulkRenameUtility",
+    "foss": false
   },
   "WPFInstallbuzz": {
     "category": "AI-Automation",
@@ -7031,13 +6963,32 @@ $sync.configs.applications = @'
     "winget": "ChidiWilliams.Buzz",
     "foss": true
   },
+  "WPFInstallblurautoclicker": {
+    "category": "Utilities",
+    "choco": "na",
+    "content": "BlurAutoClicker",
+    "description": "An Auto-clicker with a few advanced features and generally better performance than popular alternatives.",
+    "link": "https://blur009.vercel.app/projects/blur-autoclicker/",
+    "winget": "Blur009.BlurAutoClicker",
+    "foss": true
+  },
   "WPFInstallAdvancedRenamer": {
     "category": "Utilities",
     "choco": "advanced-renamer",
     "content": "Advanced Renamer",
     "description": "Advanced Renamer is a program for renaming multiple files and folders at once. By configuring renaming methods the names can be manipulated in various ways.",
     "link": "https://www.advancedrenamer.com/",
-    "winget": "HulubuluSoftware.AdvancedRenamer"
+    "winget": "HulubuluSoftware.AdvancedRenamer",
+    "foss": false
+  },
+  "WPFInstallcryptomator": {
+    "category": "Utilities",
+    "choco": "cryptomator",
+    "content": "Cryptomator",
+    "description": "Cryptomator for Windows, macOS, and Linux: Secure client-side encryption for your cloud storage, ensuring privacy and control over your data.",
+    "link": "https://github.com/cryptomator/cryptomator/",
+    "winget": "Cryptomator.Cryptomator",
+    "foss": true
   },
   "WPFInstallcitrixworkspaceapp": {
     "category": "Utilities",
@@ -7045,7 +6996,8 @@ $sync.configs.applications = @'
     "content": "Citrix Workspace app",
     "description": "A secure, unified client application that provides instant access to virtual desktops, SaaS, web, and Windows apps from any device (Windows, macOS, Linux, iOS, Android) or browser.",
     "link": "https://www.citrix.com/downloads/workspace-app/",
-    "winget": "Citrix.Workspace"
+    "winget": "Citrix.Workspace",
+    "foss": false
   },
   "WPFInstallcalibre": {
     "category": "Document",
@@ -7080,7 +7032,8 @@ $sync.configs.applications = @'
     "content": "ChatGPT",
     "description": "ChatGPT desktop app provides direct access to OpenAI's conversational AI assistant for writing, analysis, and productivity tasks.",
     "link": "https://openai.com/chatgpt/desktop/",
-    "winget": "OpenAI.ChatGPT"
+    "winget": "9nt1r1c2hh7j",
+    "foss": false
   },
   "WPFInstallchatterino": {
     "category": "Communications",
@@ -7097,7 +7050,8 @@ $sync.configs.applications = @'
     "content": "Chrome",
     "description": "Google Chrome is a widely used web browser known for its speed, simplicity, and seamless integration with Google services.",
     "link": "https://www.google.com/chrome/",
-    "winget": "Google.Chrome"
+    "winget": "Google.Chrome",
+    "foss": false
   },
   "WPFInstallchromium": {
     "category": "Browsers",
@@ -7150,7 +7104,8 @@ $sync.configs.applications = @'
     "content": "Clone Hero",
     "description": "Clone Hero is a free rhythm game, which can be played with any 5 or 6 button guitar controller.",
     "link": "https://clonehero.net/",
-    "winget": "CloneHeroTeam.CloneHero"
+    "winget": "CloneHeroTeam.CloneHero",
+    "foss": false
   },
   "WPFInstallcmake": {
     "category": "Development",
@@ -7176,7 +7131,8 @@ $sync.configs.applications = @'
     "content": "CPU-Z",
     "description": "CPU-Z is a system monitoring and diagnostic tool for Windows. It provides detailed information about the computer's hardware components, including the CPU, memory, and motherboard.",
     "link": "https://www.cpuid.com/softwares/cpu-z.html",
-    "winget": "CPUID.CPU-Z"
+    "winget": "CPUID.CPU-Z",
+    "foss": false
   },
   "WPFInstallcrystaldiskinfo": {
     "category": "Utilities",
@@ -7214,6 +7170,15 @@ $sync.configs.applications = @'
     "winget": "Anysphere.Cursor",
     "foss": false
   },
+  "WPFInstallDangerzone": {
+    "category": "Utilities",
+    "choco": "na",
+    "winget": "FreedomofthePressFoundation.Dangerzone",
+    "description": "Take potentially dangerous PDFs, office documents, or images and convert them to a safe PDF.",
+    "content": "Dangerzone",
+    "link": "https://github.com/freedomofpress/dangerzone",
+    "foss": true
+  },
   "WPFInstalldarktable": {
     "category": "Multimedia Tools",
     "choco": "darktable",
@@ -7238,7 +7203,8 @@ $sync.configs.applications = @'
     "content": "Display Driver Uninstaller",
     "description": "Display Driver Uninstaller (DDU) is a tool for completely uninstalling graphics drivers from NVIDIA, AMD, and Intel. It is useful for troubleshooting graphics driver-related issues.",
     "link": "https://www.wagnardsoft.com/display-driver-uninstaller-DDU-",
-    "winget": "Wagnardsoft.DisplayDriverUninstaller"
+    "winget": "Wagnardsoft.DisplayDriverUninstaller",
+    "foss": true
   },
   "WPFInstalldeepl": {
     "category": "AI-Automation",
@@ -7273,7 +7239,7 @@ $sync.configs.applications = @'
     "content": "digiKam",
     "description": "digiKam is an advanced open-source photo management software with features for organizing, editing, and sharing photos.",
     "link": "https://www.digikam.org/",
-    "winget": "KDE.digikam",
+    "winget": "KDE.digiKam",
     "foss": true
   },
   "WPFInstalldiscord": {
@@ -7282,11 +7248,12 @@ $sync.configs.applications = @'
     "content": "Discord",
     "description": "Discord is a popular communication platform with voice, video, and text chat, designed for gamers but used by a wide range of communities.",
     "link": "https://discord.com/",
-    "winget": "Discord.Discord"
+    "winget": "Discord.Discord",
+    "foss": false
   },
   "WPFInstalldismtools": {
     "category": "Microsoft Tools",
-    "choco": "na",
+    "choco": "dismtools",
     "content": "DISMTools",
     "description": "DISMTools is a fast, customizable GUI for the DISM utility, supporting Windows images from Windows 7 onward. It handles installations on any drive, offers project support, and lets users tweak settings like color modes, language, and DISM versions; powered by both native DISM and a managed DISM API.",
     "link": "https://github.com/CodingWonders/DISMTools",
@@ -7299,7 +7266,17 @@ $sync.configs.applications = @'
     "content": "NTLite",
     "description": "Integrate updates, drivers, automate Windows and application setup, speedup Windows deployment process and have it all set for the next time.",
     "link": "https://ntlite.com",
-    "winget": "Nlitesoft.NTLite"
+    "winget": "Nlitesoft.NTLite",
+    "foss": false
+  },
+  "WPFInstalldorion": {
+    "category": "Communications",
+    "choco": "dorion",
+    "content": "Dorion",
+    "description": "Tiny alternative Discord client with a smaller footprint, snappier startup, themes, plugins and more!",
+    "link": "https://github.com/SpikeHD/Dorion",
+    "winget": "SpikeHD.Dorion",
+    "foss": true
   },
   "WPFInstallditto": {
     "category": "Utilities",
@@ -7316,7 +7293,8 @@ $sync.configs.applications = @'
     "content": "Docker Desktop",
     "description": "Docker Desktop is a powerful tool for containerized application development and deployment.",
     "link": "https://www.docker.com/products/docker-desktop",
-    "winget": "Docker.DockerDesktop"
+    "winget": "Docker.DockerDesktop",
+    "foss": false
   },
   "WPFInstalldotnet3": {
     "category": "Microsoft Tools",
@@ -7324,7 +7302,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 3.1",
     "description": ".NET Desktop Runtime 3.1 is a runtime environment required for running applications developed with .NET Core 3.1.",
     "link": "https://dotnet.microsoft.com/download/dotnet/3.1",
-    "winget": "Microsoft.DotNet.DesktopRuntime.3_1"
+    "winget": "Microsoft.DotNet.DesktopRuntime.3_1",
+    "foss": true
   },
   "WPFInstalldotnet5": {
     "category": "Microsoft Tools",
@@ -7332,7 +7311,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 5",
     "description": ".NET Desktop Runtime 5 is a runtime environment required for running applications developed with .NET 5.",
     "link": "https://dotnet.microsoft.com/download/dotnet/5.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.5"
+    "winget": "Microsoft.DotNet.DesktopRuntime.5",
+    "foss": true
   },
   "WPFInstalldotnet6": {
     "category": "Microsoft Tools",
@@ -7340,7 +7320,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 6",
     "description": ".NET Desktop Runtime 6 is a runtime environment required for running applications developed with .NET 6.",
     "link": "https://dotnet.microsoft.com/download/dotnet/6.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.6"
+    "winget": "Microsoft.DotNet.DesktopRuntime.6",
+    "foss": true
   },
   "WPFInstalldotnet7": {
     "category": "Microsoft Tools",
@@ -7348,7 +7329,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 7",
     "description": ".NET Desktop Runtime 7 is a runtime environment required for running applications developed with .NET 7.",
     "link": "https://dotnet.microsoft.com/download/dotnet/7.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.7"
+    "winget": "Microsoft.DotNet.DesktopRuntime.7",
+    "foss": true
   },
   "WPFInstalldotnet8": {
     "category": "Microsoft Tools",
@@ -7356,7 +7338,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 8",
     "description": ".NET Desktop Runtime 8 is a runtime environment required for running applications developed with .NET 8.",
     "link": "https://dotnet.microsoft.com/download/dotnet/8.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.8"
+    "winget": "Microsoft.DotNet.DesktopRuntime.8",
+    "foss": true
   },
   "WPFInstalldotnet9": {
     "category": "Microsoft Tools",
@@ -7364,7 +7347,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 9",
     "description": ".NET Desktop Runtime 9 is a runtime environment required for running applications developed with .NET 9.",
     "link": "https://dotnet.microsoft.com/download/dotnet/9.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.9"
+    "winget": "Microsoft.DotNet.DesktopRuntime.9",
+    "foss": true
   },
   "WPFInstalldotnet10": {
     "category": "Microsoft Tools",
@@ -7372,7 +7356,8 @@ $sync.configs.applications = @'
     "content": ".NET Desktop Runtime 10",
     "description": ".NET Desktop Runtime 10 is a runtime environment required for running applications developed with .NET 10.",
     "link": "https://dotnet.microsoft.com/download/dotnet/10.0",
-    "winget": "Microsoft.DotNet.DesktopRuntime.10"
+    "winget": "Microsoft.DotNet.DesktopRuntime.10",
+    "foss": true
   },
   "WPFInstalldmt": {
     "winget": "GNE.DualMonitorTools",
@@ -7398,7 +7383,8 @@ $sync.configs.applications = @'
     "content": "Easy Context Menu",
     "description": "Easy Context Menu (ECM) lets you add a variety of useful commands and tweaks to the Desktop, My Computer, Drives, File and Folder right-click context menus. This enables you to access the most used Windows components quickly and easily. Simply check the box next to the items you wish to add. Once added, just right click and the select the component shortcut to launch it. Easy Context Menu is both portable and freeware.",
     "link": "https://www.sordum.org/7615/easy-context-menu-v1-6/",
-    "winget": "sordum.EasyContextMenu"
+    "winget": "sordum.EasyContextMenu",
+    "foss": false
   },
   "WPFInstalleaapp": {
     "category": "Games",
@@ -7406,7 +7392,8 @@ $sync.configs.applications = @'
     "content": "EA App",
     "description": "EA App is a platform for accessing and playing Electronic Arts games.",
     "link": "https://www.ea.com/ea-app",
-    "winget": "ElectronicArts.EADesktop"
+    "winget": "ElectronicArts.EADesktop",
+    "foss": false
   },
   "WPFInstalleartrumpet": {
     "category": "Multimedia Tools",
@@ -7423,7 +7410,8 @@ $sync.configs.applications = @'
     "content": "Edge",
     "description": "Microsoft Edge is a modern web browser built on Chromium, offering performance, security, and integration with Microsoft services.",
     "link": "https://www.microsoft.com/edge",
-    "winget": "Microsoft.Edge"
+    "winget": "Microsoft.Edge",
+    "foss": false
   },
   "WPFInstallefibooteditor": {
     "category": "Pro Tools",
@@ -7431,7 +7419,8 @@ $sync.configs.applications = @'
     "content": "EFI Boot Editor",
     "description": "EFI Boot Editor is a tool for managing the EFI/UEFI boot entries on your system. It allows you to customize the boot configuration of your computer.",
     "link": "https://www.easyuefi.com/",
-    "winget": "EFIBootEditor.EFIBootEditor"
+    "winget": "EFIBootEditor.EFIBootEditor",
+    "foss": false
   },
   "WPFInstallemulationstation": {
     "category": "Games",
@@ -7457,7 +7446,8 @@ $sync.configs.applications = @'
     "content": "Epic Games Launcher",
     "description": "Epic Games Launcher is the client for accessing and playing games from the Epic Games Store.",
     "link": "https://www.epicgames.com/store/en-US/",
-    "winget": "EpicGames.EpicGamesLauncher"
+    "winget": "EpicGames.EpicGamesLauncher",
+    "foss": false
   },
   "WPFInstallesearch": {
     "category": "Utilities",
@@ -7465,7 +7455,8 @@ $sync.configs.applications = @'
     "content": "Everything Search",
     "description": "Everything Search is a fast and efficient file search utility for Windows.",
     "link": "https://www.voidtools.com/",
-    "winget": "voidtools.Everything"
+    "winget": "voidtools.Everything",
+    "foss": false
   },
   "WPFInstallespanso": {
     "category": "Utilities",
@@ -7476,9 +7467,9 @@ $sync.configs.applications = @'
     "winget": "Espanso.Espanso",
     "foss": true
   },
-  "WPFInstallffmpeg": {
+  "WPFInstallffmpeg-batch": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "ffmpeg-batch",
     "content": "FFmpeg Batch AV Converter",
     "description": "FFmpeg Batch AV Converter is a universal audio and video encoder, that allows to use the full potential of ffmpeg command line with a few mouse clicks in a convenient GUI with drag and drop, progress information.",
     "link": "https://ffmpeg-batch.sourceforge.io/",
@@ -7496,7 +7487,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallfastfetch": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "fastfetch",
     "content": "Fastfetch",
     "description": "Fastfetch is a neofetch-like tool for fetching system information and displaying them in a pretty way.",
     "link": "https://github.com/fastfetch-cli/fastfetch/",
@@ -7512,13 +7503,14 @@ $sync.configs.applications = @'
     "winget": "Ferdium.Ferdium",
     "foss": true
   },
-  "WPFInstallffmpeg-full": {
+  "WPFInstallffmpeg": {
     "category": "Multimedia Tools",
     "choco": "ffmpeg-full",
     "content": "FFmpeg (full)",
     "description": "FFmpeg is a powerful multimedia processing tool that enables users to convert, edit, and stream audio and video files with a vast range of codecs and formats. | Note: FFmpeg can not be uninstalled using WinGet.",
     "link": "https://ffmpeg.org/",
-    "winget": "Gyan.FFmpeg"
+    "winget": "Gyan.FFmpeg",
+    "foss": true
   },
   "WPFInstallfileconverter": {
     "category": "Utilities",
@@ -7535,7 +7527,7 @@ $sync.configs.applications = @'
     "content": "Files",
     "description": "Alternative file explorer.",
     "link": "https://github.com/files-community/Files",
-    "winget": "na",
+    "winget": "FilesCommunity.Files",
     "foss": true
   },
   "WPFInstallfirealpaca": {
@@ -7544,7 +7536,8 @@ $sync.configs.applications = @'
     "content": "Fire Alpaca",
     "description": "Fire Alpaca is a free digital painting software that provides a wide range of drawing tools and a user-friendly interface.",
     "link": "https://firealpaca.com/",
-    "winget": "FireAlpaca.FireAlpaca"
+    "winget": "FireAlpaca.FireAlpaca",
+    "foss": false
   },
   "WPFInstallfirefox": {
     "category": "Browsers",
@@ -7579,11 +7572,12 @@ $sync.configs.applications = @'
     "content": "Lightshot (Screenshots)",
     "description": "Lightshot is an easy-to-use, light-weight screenshot software tool, where you can optionally edit your screenshots using different tools, share them via Internet and/or save to disk, and customize the available options.",
     "link": "https://app.prntscr.com/",
-    "winget": "Skillbrains.Lightshot"
+    "winget": "Skillbrains.Lightshot",
+    "foss": false
   },
   "WPFInstallfloorp": {
     "category": "Browsers",
-    "choco": "na",
+    "choco": "floorp",
     "content": "Floorp",
     "description": "Floorp is an open-source web browser project that aims to provide a simple and fast browsing experience.",
     "link": "https://floorp.app/",
@@ -7605,7 +7599,8 @@ $sync.configs.applications = @'
     "content": "F.lux",
     "description": "f.lux adjusts the color temperature of your screen to reduce eye strain during nighttime use.",
     "link": "https://justgetflux.com/",
-    "winget": "flux.flux"
+    "winget": "flux.flux",
+    "foss": false
   },
   "WPFInstallfoobar": {
     "category": "Multimedia Tools",
@@ -7613,7 +7608,8 @@ $sync.configs.applications = @'
     "content": "foobar2000 (Music Player)",
     "description": "foobar2000 is a highly customizable and extensible music player for Windows, known for its modular design and advanced features.",
     "link": "https://www.foobar2000.org/",
-    "winget": "PeterPawlowski.foobar2000"
+    "winget": "PeterPawlowski.foobar2000",
+    "foss": false
   },
   "WPFInstallfoxpdfeditor": {
     "category": "Document",
@@ -7621,7 +7617,8 @@ $sync.configs.applications = @'
     "content": "Foxit PDF Editor",
     "description": "Foxit PDF Editor is a feature-rich PDF editor and viewer with a familiar ribbon-style interface.",
     "link": "https://www.foxit.com/pdf-editor/",
-    "winget": "Foxit.PhantomPDF"
+    "winget": "Foxit.PhantomPDF",
+    "foss": false
   },
   "WPFInstallfoxpdfreader": {
     "category": "Document",
@@ -7629,7 +7626,8 @@ $sync.configs.applications = @'
     "content": "Foxit PDF Reader",
     "description": "Foxit PDF Reader is a free PDF viewer with a familiar ribbon-style interface.",
     "link": "https://www.foxit.com/pdf-reader/",
-    "winget": "Foxit.FoxitReader"
+    "winget": "Foxit.FoxitReader",
+    "foss": false
   },
   "WPFInstallfreecad": {
     "category": "Multimedia Tools",
@@ -7664,7 +7662,8 @@ $sync.configs.applications = @'
     "content": "GeForce NOW",
     "description": "GeForce NOW is a cloud gaming service that allows you to play high-quality PC games on your device.",
     "link": "https://www.nvidia.com/en-us/geforce-now/",
-    "winget": "Nvidia.GeForceNow"
+    "winget": "Nvidia.GeForceNow",
+    "foss": false
   },
   "WPFInstallgimp": {
     "category": "Multimedia Tools",
@@ -7686,11 +7685,12 @@ $sync.configs.applications = @'
   },
   "WPFInstallgitbutler": {
     "category": "Development",
-    "choco": "na",
+    "choco": "gitbutler",
     "content": "Git Butler",
     "description": "A Git client for simultaneous branches on top of your existing workflow.",
     "link": "https://gitbutler.com/",
-    "winget": "GitButler.GitButler"
+    "winget": "GitButler.GitButler",
+    "foss": false
   },
   "WPFInstallgitextensions": {
     "category": "Development",
@@ -7698,7 +7698,8 @@ $sync.configs.applications = @'
     "content": "Git Extensions",
     "description": "Git Extensions is a graphical user interface for Git, providing additional features for easier source code management.",
     "link": "https://gitextensions.github.io/",
-    "winget": "GitExtensionsTeam.GitExtensions"
+    "winget": "GitExtensionsTeam.GitExtensions",
+    "foss": true
   },
   "WPFInstallgithubcli": {
     "category": "Development",
@@ -7711,7 +7712,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallgithub-copilot-cli": {
     "category": "AI-Automation",
-    "choco": "na",
+    "choco": "github-copilot-cli",
     "content": "GitHub Copilot CLI",
     "description": "GitHub Copilot experience for the command line: natural-language assistance for commands and development tasks; distributed via WinGet.",
     "link": "https://github.com/github/copilot-cli",
@@ -7733,7 +7734,8 @@ $sync.configs.applications = @'
     "content": "GitKraken Client",
     "description": "GitKraken Client is a powerful visual Git client from Axosoft that works with ALL git repositories on any hosting environment.",
     "link": "https://www.gitkraken.com/git-client",
-    "winget": "Axosoft.GitKraken"
+    "winget": "Axosoft.GitKraken",
+    "foss": false
   },
   "WPFInstallglaryutilities": {
     "category": "Utilities",
@@ -7741,7 +7743,8 @@ $sync.configs.applications = @'
     "content": "Glary Utilities",
     "description": "Glary Utilities is a comprehensive system optimization and maintenance tool for Windows.",
     "link": "https://www.glarysoft.com/glary-utilities/",
-    "winget": "Glarysoft.GlaryUtilities"
+    "winget": "Glarysoft.GlaryUtilities",
+    "foss": false
   },
   "WPFInstallgodotengine": {
     "category": "Development",
@@ -7758,7 +7761,8 @@ $sync.configs.applications = @'
     "content": "GOG Galaxy",
     "description": "GOG Galaxy is a gaming client that offers DRM-free games, additional content, and more.",
     "link": "https://www.gog.com/galaxy",
-    "winget": "GOG.Galaxy"
+    "winget": "GOG.Galaxy",
+    "foss": false
   },
   "WPFInstallgitify": {
     "category": "Development",
@@ -7784,7 +7788,8 @@ $sync.configs.applications = @'
     "content": "Google Drive",
     "description": "File syncing across devices all tied to your Google account.",
     "link": "https://www.google.com/drive/",
-    "winget": "Google.GoogleDrive"
+    "winget": "Google.GoogleDrive",
+    "foss": false
   },
   "WPFInstallgpt4all": {
     "category": "AI-Automation",
@@ -7801,7 +7806,8 @@ $sync.configs.applications = @'
     "content": "GPU-Z",
     "description": "GPU-Z provides detailed information about your graphics card and GPU.",
     "link": "https://www.techpowerup.com/gpuz/",
-    "winget": "TechPowerUp.GPU-Z"
+    "winget": "TechPowerUp.GPU-Z",
+    "foss": false
   },
   "WPFInstallgreenshot": {
     "category": "Multimedia Tools",
@@ -7818,7 +7824,26 @@ $sync.configs.applications = @'
     "content": "Gsudo",
     "description": "Gsudo is a sudo implementation for Windows, allowing elevated privilege execution.",
     "link": "https://gerardog.github.io/gsudo/",
-    "winget": "gerardog.gsudo"
+    "winget": "gerardog.gsudo",
+    "foss": true
+  },
+  "WPFInstallhelium": {
+    "category": "Browsers",
+    "choco": "helium",
+    "content": "Helium",
+    "description": "Private, fast, and honest web browser.",
+    "link": "https://github.com/imputnet/helium/",
+    "winget": "ImputNet.Helium",
+    "foss": true
+  },
+  "WPFInstallhugo": {
+    "category": "Utilities",
+    "choco": "hugo-extended",
+    "content": "Hugo",
+    "description": "The world's fastest framework for building websites.",
+    "link": "https://github.com/gohugoio/hugo/",
+    "winget": "Hugo.Hugo.Extended",
+    "foss": true
   },
   "WPFInstallhandbrake": {
     "category": "Multimedia Tools",
@@ -7880,7 +7905,8 @@ $sync.configs.applications = @'
     "content": "HWiNFO",
     "description": "HWiNFO provides comprehensive hardware information and diagnostics for Windows.",
     "link": "https://www.hwinfo.com/",
-    "winget": "REALiX.HWiNFO"
+    "winget": "REALiX.HWiNFO",
+    "foss": false
   },
   "WPFInstallhwmonitor": {
     "category": "Utilities",
@@ -7888,11 +7914,12 @@ $sync.configs.applications = @'
     "content": "HWMonitor",
     "description": "HWMonitor is a hardware monitoring program that reads PC systems main health sensors.",
     "link": "https://www.cpuid.com/softwares/hwmonitor.html",
-    "winget": "CPUID.HWMonitor"
+    "winget": "CPUID.HWMonitor",
+    "foss": false
   },
   "WPFInstallimhex": {
     "category": "Development",
-    "choco": "na",
+    "choco": "imhex",
     "content": "ImHex (Hex Editor)",
     "description": "A modern, featureful Hex Editor for Reverse Engineers and Developers.",
     "link": "https://imhex.werwolv.net/",
@@ -7914,7 +7941,8 @@ $sync.configs.applications = @'
     "content": "ImgBurn",
     "description": "ImgBurn is a lightweight CD, DVD, HD-DVD, and Blu-ray burning application with advanced features for creating and burning disc images.",
     "link": "https://www.imgburn.com/",
-    "winget": "LIGHTNINGUK.ImgBurn"
+    "winget": "LIGHTNINGUK.ImgBurn",
+    "foss": false
   },
   "WPFInstallinkscape": {
     "category": "Multimedia Tools",
@@ -7924,6 +7952,14 @@ $sync.configs.applications = @'
     "link": "https://inkscape.org/",
     "winget": "Inkscape.Inkscape",
     "foss": true
+  },
+  "WPFInstallirfanview": {
+    "category": "Multimedia Tools",
+    "choco": "irfanview",
+    "content": "IrfanView",
+    "description": "IrfanView is a lightweight, fast, and free image viewer and editor. Supports multiple formats, batch processing, and powerful plugins.",
+    "link": "https://irfanview.com/",
+    "winget": "IrfanSkiljan.IrfanView"
   },
   "WPFInstallitch": {
     "category": "Games",
@@ -7940,7 +7976,8 @@ $sync.configs.applications = @'
     "content": "iTunes",
     "description": "iTunes is a media player, media library, and online radio broadcaster application developed by Apple Inc.",
     "link": "https://www.apple.com/itunes/",
-    "winget": "Apple.iTunes"
+    "winget": "Apple.iTunes",
+    "foss": false
   },
   "WPFInstalljami": {
     "category": "Communications",
@@ -8011,7 +8048,8 @@ $sync.configs.applications = @'
     "content": "JDownloader",
     "description": "JDownloader is a feature-rich download manager with support for various file hosting services.",
     "link": "https://jdownloader.org/",
-    "winget": "AppWork.JDownloader"
+    "winget": "AppWork.JDownloader",
+    "foss": true
   },
   "WPFInstalljellyfinmediaplayer": {
     "category": "Multimedia Tools",
@@ -8037,7 +8075,8 @@ $sync.configs.applications = @'
     "content": "Jetbrains Toolbox",
     "description": "Jetbrains Toolbox is a platform for easy installation and management of JetBrains developer tools.",
     "link": "https://www.jetbrains.com/toolbox/",
-    "winget": "JetBrains.Toolbox"
+    "winget": "JetBrains.Toolbox",
+    "foss": false
   },
   "WPFInstalljoplin": {
     "category": "Document",
@@ -8090,7 +8129,8 @@ $sync.configs.applications = @'
     "content": "K-Lite Codec Standard",
     "description": "K-Lite Codec Pack Standard is a collection of audio and video codecs and related tools, providing essential components for media playback.",
     "link": "https://www.codecguide.com/",
-    "winget": "CodecGuide.K-LiteCodecPack.Standard"
+    "winget": "CodecGuide.K-LiteCodecPack.Standard",
+    "foss": false
   },
   "WPFInstallkodi": {
     "category": "Multimedia Tools",
@@ -8143,7 +8183,8 @@ $sync.configs.applications = @'
     "content": "Link Shell extension",
     "description": "Link Shell Extension (LSE) provides for the creation of Hardlinks, Junctions, Volume Mountpoints, Symbolic Links, a folder cloning process that utilises Hardlinks or Symbolic Links and a copy process taking care of Junctions, Symbolic Links, and Hardlinks. LSE, as its name implies is implemented as a Shell extension and is accessed from Windows Explorer, or similar file/folder managers.",
     "link": "https://schinagl.priv.at/nt/hardlinkshellext/hardlinkshellext.html",
-    "winget": "HermannSchinagl.LinkShellExtension"
+    "winget": "HermannSchinagl.LinkShellExtension",
+    "foss": false
   },
   "WPFInstalllinphone": {
     "category": "Communications",
@@ -8187,7 +8228,8 @@ $sync.configs.applications = @'
     "content": "LockHunter",
     "description": "LockHunter is a free tool to delete files blocked by something you do not know.",
     "link": "https://lockhunter.com/",
-    "winget": "CrystalRich.LockHunter"
+    "winget": "CrystalRich.LockHunter",
+    "foss": false
   },
   "WPFInstalllogseq": {
     "category": "Document",
@@ -8204,7 +8246,17 @@ $sync.configs.applications = @'
     "content": "Logitech G Hub",
     "description": "Official software for managing Logitech gaming peripherals (mice, keyboards, headsets, lighting profiles, etc.).",
     "link": "https://www.logitechg.com/en-us/software/ghub",
-    "winget": "Logitech.GHUB"
+    "winget": "Logitech.GHUB",
+    "foss": false
+  },
+  "WPFInstallmorgen": {
+    "category": "Utilities",
+    "choco": "morgen",
+    "content": "Morgen",
+    "description": "A daily planner that prioritizes your most important to-dos, events, and projects in one app. Get AI-powered recommendations or plan manually.",
+    "link": "https://www.morgen.so/",
+    "winget": "Morgen.Morgen",
+    "foss": false
   },
   "WPFInstallmalwarebytes": {
     "category": "Utilities",
@@ -8212,7 +8264,8 @@ $sync.configs.applications = @'
     "content": "Malwarebytes",
     "description": "Malwarebytes is an anti-malware software that provides real-time protection against threats.",
     "link": "https://www.malwarebytes.com/",
-    "winget": "Malwarebytes.Malwarebytes"
+    "winget": "Malwarebytes.Malwarebytes",
+    "foss": false
   },
   "WPFInstallmpc-qt": {
     "category": "Multimedia Tools",
@@ -8264,13 +8317,22 @@ $sync.configs.applications = @'
     "choco": "na",
     "content": "Microsoft Copilot",
     "description": "Microsoft Copilot desktop app for Windows (consumer Copilot), distributed via Microsoft Store and commonly installed via its Store ID.",
-    "link": "https://apps.microsoft.com/detail/9nht9rb2f4hd",
-    "winget": "9NHT9RB2F4HD",
+    "link": "https://apps.microsoft.com/detail/xp9cxngppj97xx",
+    "winget": "XP9CXNGPPJ97XX",
     "foss": false
+  },
+  "WPFInstallmodrinth": {
+    "category": "Games",
+    "choco": "na",
+    "content": "Modrinth App",
+    "description": "Modrinth App is a desktop application for managing Minecraft mods and modpacks.",
+    "link": "https://modrinth.com/app",
+    "winget": "Modrinth.ModrinthApp",
+    "foss": true
   },
   "WPFInstallModernFlyouts": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "modernflyouts",
     "content": "Modern Flyouts",
     "description": "An open-source, modern, Fluent Design-based set of flyouts for Windows.",
     "link": "https://github.com/ModernFlyouts-Community/ModernFlyouts/",
@@ -8337,7 +8399,8 @@ $sync.configs.applications = @'
     "content": "MSI Afterburner",
     "description": "MSI Afterburner is a graphics card overclocking utility with advanced features.",
     "link": "https://www.msi.com/Landing/afterburner",
-    "winget": "Guru3D.Afterburner"
+    "winget": "Guru3D.Afterburner",
+    "foss": false
   },
   "WPFInstallmullvadvpn": {
     "category": "Pro Tools",
@@ -8399,7 +8462,8 @@ $sync.configs.applications = @'
     "content": "MusicBee (Music Player)",
     "description": "MusicBee is a customizable music player with support for various audio formats. It includes features like an integrated search function, tag editing, and more.",
     "link": "https://getmusicbee.com/",
-    "winget": "MusicBee.MusicBee"
+    "winget": "9P4CLT2RJ1RS",
+    "foss": false
   },
   "WPFInstallmp3tag": {
     "category": "Multimedia Tools",
@@ -8407,7 +8471,8 @@ $sync.configs.applications = @'
     "content": "Mp3tag (Metadata Audio Editor)",
     "description": "Mp3tag is a powerful and yet easy-to-use tool to edit metadata of common audio formats.",
     "link": "https://www.mp3tag.de/en/",
-    "winget": "Mp3tag.Mp3tag"
+    "winget": "FlorianHeidenreich.Mp3tag",
+    "foss": false
   },
   "WPFInstalltagscanner": {
     "category": "Multimedia Tools",
@@ -8415,7 +8480,26 @@ $sync.configs.applications = @'
     "content": "TagScanner (Tag Scanner)",
     "description": "TagScanner is a powerful tool for organizing and managing your music collection.",
     "link": "https://www.xdlab.ru/en/",
-    "winget": "SergeySerkov.TagScanner"
+    "winget": "SergeySerkov.TagScanner",
+    "foss": false
+  },
+  "WPFInstallnetspeedtray": {
+    "category": "Utilities",
+    "choco": "na",
+    "content": "NetSpeedTray",
+    "description": "A lightweight, open-source network monitor for Windows that displays live upload/download speeds directly on the Taskbar with a native look and feel.",
+    "link": "https://github.com/erez-c137/NetSpeedTray/tree/main/",
+    "winget": "erez-c137.NetSpeedTray",
+    "foss": true
+  },
+  "WPFInstallnotion": {
+    "category": "AI-Automation",
+    "choco": "notion",
+    "content": "Notion",
+    "description": "Build Custom Agents, search across all your apps, and automate busywork. The AI workspace where teams get more done, faster.",
+    "link": "https://www.notion.com/",
+    "winget": "Notion.Notion",
+    "foss": false
   },
   "WPFInstallnanazip": {
     "category": "Utilities",
@@ -8432,7 +8516,7 @@ $sync.configs.applications = @'
     "content": "NetBird",
     "description": "NetBird is a open-source alternative comparable to TailScale that can be connected to a self-hosted server.",
     "link": "https://netbird.io/",
-    "winget": "netbird",
+    "winget": "Netbird.Netbird",
     "foss": true
   },
   "WPFInstallnaps2": {
@@ -8459,7 +8543,8 @@ $sync.configs.applications = @'
     "content": "Neovim",
     "description": "Neovim is a highly extensible text editor and an improvement over the original Vim editor.",
     "link": "https://neovim.io/",
-    "winget": "Neovim.Neovim"
+    "winget": "Neovim.Neovim",
+    "foss": true
   },
   "WPFInstallnextclouddesktop": {
     "category": "Utilities",
@@ -8476,7 +8561,8 @@ $sync.configs.applications = @'
     "content": "nGlide (3dfx compatibility)",
     "description": "nGlide is a 3Dfx Voodoo Glide wrapper. It allows you to play games that use Glide API on modern graphics cards without the need for a 3Dfx Voodoo graphics card.",
     "link": "https://www.zeus-software.com/downloads/nglide",
-    "winget": "ZeusSoftware.nGlide"
+    "winget": "ZeusSoftware.nGlide",
+    "foss": false
   },
   "WPFInstallnmap": {
     "category": "Pro Tools",
@@ -8547,7 +8633,8 @@ $sync.configs.applications = @'
     "content": "NVCleanstall",
     "description": "NVCleanstall is a tool designed to customize NVIDIA driver installations, allowing advanced users to control more aspects of the installation process.",
     "link": "https://www.techpowerup.com/nvcleanstall/",
-    "winget": "TechPowerUp.NVCleanstall"
+    "winget": "TechPowerUp.NVCleanstall",
+    "foss": false
   },
   "WPFInstallnvm": {
     "category": "Development",
@@ -8573,7 +8660,8 @@ $sync.configs.applications = @'
     "content": "Obsidian",
     "description": "Obsidian is a powerful note-taking and knowledge management application.",
     "link": "https://obsidian.md/",
-    "winget": "Obsidian.Obsidian"
+    "winget": "Obsidian.Obsidian",
+    "foss": false
   },
   "WPFInstallokular": {
     "category": "Document",
@@ -8599,7 +8687,8 @@ $sync.configs.applications = @'
     "content": "OneDrive",
     "description": "OneDrive is a cloud storage service provided by Microsoft, allowing users to store and share files securely across devices.",
     "link": "https://onedrive.live.com/",
-    "winget": "Microsoft.OneDrive"
+    "winget": "Microsoft.OneDrive",
+    "foss": false
   },
   "WPFInstallonlyoffice": {
     "category": "Document",
@@ -8616,7 +8705,8 @@ $sync.configs.applications = @'
     "content": "OPAutoClicker",
     "description": "A full-fledged autoclicker with two modes of autoclicking, at your dynamic cursor location or at a prespecified location.",
     "link": "https://www.opautoclicker.com",
-    "winget": "OPAutoClicker.OPAutoClicker"
+    "winget": "OPAutoClicker.OPAutoClicker",
+    "foss": false
   },
   "WPFInstallopenhashtab": {
     "category": "Utilities",
@@ -8682,7 +8772,7 @@ $sync.configs.applications = @'
     "foss": true
   },
   "WPFInstallpolicyplus": {
-    "category": "Multimedia Tools",
+    "category": "Utilities",
     "choco": "na",
     "content": "Policy Plus",
     "description": "Local Group Policy Editor plus more, for all Windows editions.",
@@ -8692,7 +8782,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallqview": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "qview",
     "content": "qView",
     "description": "qView is an image viewer designed with minimalism and usability in mind.",
     "link": "https://github.com/jurplel/qView",
@@ -8701,19 +8791,11 @@ $sync.configs.applications = @'
   },
   "WPFInstallpotplayer": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "potplayer",
     "content": "PotPlayer",
     "description": "PotPlayer is a free Windows media player with wide format support, high performance, built-in codecs, and extensive customization options.",
     "link": "https://potplayer.tv/",
-    "winget": "Daum.PotPlayer"
-  },
-  "WPFInstallpower-automate-desktop": {
-    "category": "AI-Automation",
-    "choco": "na",
-    "content": "Power Automate for desktop",
-    "description": "Microsoft's Windows RPA tool for building desktop flows to automate repetitive tasks across apps and services.",
-    "link": "https://powerautomate.microsoft.com/desktop/",
-    "winget": "na",
+    "winget": "Daum.PotPlayer",
     "foss": false
   },
   "WPFInstallprocessexplorer": {
@@ -8722,7 +8804,8 @@ $sync.configs.applications = @'
     "content": "Process Explorer",
     "description": "Process Explorer is a task manager and system monitor.",
     "link": "https://learn.microsoft.com/sysinternals/downloads/process-explorer",
-    "winget": "Microsoft.Sysinternals.ProcessExplorer"
+    "winget": "Microsoft.Sysinternals.ProcessExplorer",
+    "foss": false
   },
   "WPFInstallPaintdotnet": {
     "category": "Multimedia Tools",
@@ -8730,7 +8813,8 @@ $sync.configs.applications = @'
     "content": "Paint.NET",
     "description": "Paint.NET is a free image and photo editing software for Windows. It features an intuitive user interface and supports a wide range of powerful editing tools.",
     "link": "https://www.getpaint.net/",
-    "winget": "dotPDN.PaintDotNet"
+    "winget": "dotPDN.PaintDotNet",
+    "foss": false
   },
   "WPFInstallparsec": {
     "category": "Utilities",
@@ -8738,7 +8822,8 @@ $sync.configs.applications = @'
     "content": "Parsec",
     "description": "Parsec is a low-latency, high-quality remote desktop sharing application for collaborating and gaming across devices.",
     "link": "https://parsec.app/",
-    "winget": "Parsec.Parsec"
+    "winget": "Parsec.Parsec",
+    "foss": false
   },
   "WPFInstallpdf-xchange": {
     "category": "Document",
@@ -8746,7 +8831,8 @@ $sync.configs.applications = @'
     "content": "PDF-XChangeEditor",
     "description": "A comprehensive Windows-based software suite and editor for creating, viewing, editing, annotating, and signing PDF files.",
     "link": "https://www.pdf-xchange.com/",
-    "winget": "TrackerSoftware.PDF-XChangeEditor"
+    "winget": "TrackerSoftware.PDF-XChangeEditor",
+    "foss": false
   },
   "WPFInstallpdf24creator": {
     "category": "Document",
@@ -8754,7 +8840,8 @@ $sync.configs.applications = @'
     "content": "PDF24 creator",
     "description": "Free and easy-to-use online/desktop PDF tools that make you more productive",
     "link": "https://tools.pdf24.org/en/",
-    "winget": "geeksoftwareGmbH.PDF24Creator"
+    "winget": "geeksoftwareGmbH.PDF24Creator",
+    "foss": false
   },
   "WPFInstallpdfsam": {
     "category": "Document",
@@ -8780,7 +8867,8 @@ $sync.configs.applications = @'
     "content": "Raspberry Pi Imager",
     "description": "Raspberry Pi Imager is a utility for writing operating system images to SD cards for Raspberry Pi devices.",
     "link": "https://www.raspberrypi.com/software/",
-    "winget": "RaspberryPiFoundation.RaspberryPiImager"
+    "winget": "RaspberryPiFoundation.RaspberryPiImager",
+    "foss": true
   },
   "WPFInstallplaynite": {
     "category": "Games",
@@ -8797,7 +8885,8 @@ $sync.configs.applications = @'
     "content": "Plex Media Server",
     "description": "Plex Media Server is a media server software that allows you to organize and stream your media library. It supports various media formats and offers a wide range of features.",
     "link": "https://www.plex.tv/your-media/",
-    "winget": "Plex.PlexMediaServer"
+    "winget": "Plex.PlexMediaServer",
+    "foss": false
   },
   "WPFInstallplexdesktop": {
     "category": "Multimedia Tools",
@@ -8805,7 +8894,8 @@ $sync.configs.applications = @'
     "content": "Plex Desktop",
     "description": "Plex Desktop for Windows is the front end for Plex Media Server.",
     "link": "https://www.plex.tv",
-    "winget": "Plex.Plex"
+    "winget": "Plex.Plex",
+    "foss": false
   },
   "WPFInstallPortmaster": {
     "category": "Pro Tools",
@@ -8831,7 +8921,8 @@ $sync.configs.applications = @'
     "content": "Postman",
     "description": "Postman is a collaboration platform for API development that simplifies the process of developing APIs.",
     "link": "https://www.postman.com/",
-    "winget": "Postman.Postman"
+    "winget": "Postman.Postman",
+    "foss": false
   },
   "WPFInstallpowerautomate": {
     "category": "Microsoft Tools",
@@ -8839,7 +8930,8 @@ $sync.configs.applications = @'
     "content": "Power Automate",
     "description": "Using Power Automate Desktop you can automate tasks on the desktop as well as the Web.",
     "link": "https://www.microsoft.com/en-us/power-platform/products/power-automate",
-    "winget": "Microsoft.PowerAutomateDesktop"
+    "winget": "Microsoft.PowerAutomateDesktop",
+    "foss": false
   },
   "WPFInstallpowerbi": {
     "category": "Microsoft Tools",
@@ -8847,7 +8939,8 @@ $sync.configs.applications = @'
     "content": "Power BI",
     "description": "Create stunning reports and visualizations with Power BI Desktop. It puts visual analytics at your fingertips with intuitive report authoring. Drag-and-drop to place content exactly where you want it on the flexible and fluid canvas. Quickly discover patterns as you explore a single unified view of linked, interactive visualizations.",
     "link": "https://www.microsoft.com/en-us/power-platform/products/power-bi/",
-    "winget": "Microsoft.PowerBI"
+    "winget": "Microsoft.PowerBI",
+    "foss": false
   },
   "WPFInstallpowershell": {
     "category": "Microsoft Tools",
@@ -8882,7 +8975,8 @@ $sync.configs.applications = @'
     "content": "Process Lasso",
     "description": "Process Lasso is a system optimization and automation tool that improves system responsiveness and stability by adjusting process priorities and CPU affinities.",
     "link": "https://bitsum.com/",
-    "winget": "BitSum.ProcessLasso"
+    "winget": "BitSum.ProcessLasso",
+    "foss": false
   },
   "WPFInstallprotonauth": {
     "category": "Utilities",
@@ -8895,7 +8989,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallprotonmail": {
     "category": "Communications",
-    "choco": "na",
+    "choco": "protonmail",
     "content": "Proton Mail",
     "description": "Proton Mail is an end-to-end encrypted email service by Proton, protecting your privacy with zero-access encryption.",
     "link": "https://proton.me/mail",
@@ -8904,7 +8998,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallprotondrive": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "protondrive",
     "content": "Proton Drive",
     "description": "Proton Drive is an end-to-end encrypted Swiss vault for your files that protects your data.",
     "link": "https://proton.me/drive",
@@ -8913,7 +9007,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallprotonpass": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "protonpass",
     "content": "Proton Pass",
     "description": "Proton Pass is a cloud-based password manager with end-to-end encryption and unique email aliases.",
     "link": "https://proton.me/pass",
@@ -8935,7 +9029,8 @@ $sync.configs.applications = @'
     "content": "SysInternals Process Monitor",
     "description": "SysInternals Process Monitor is an advanced monitoring tool that shows real-time file system, registry, and process/thread activity.",
     "link": "https://docs.microsoft.com/en-us/sysinternals/downloads/procmon",
-    "winget": "Microsoft.Sysinternals.ProcessMonitor"
+    "winget": "Microsoft.Sysinternals.ProcessMonitor",
+    "foss": false
   },
   "WPFInstallorcaslicer": {
     "category": "Utilities",
@@ -8946,13 +9041,13 @@ $sync.configs.applications = @'
     "winget": "SoftFever.OrcaSlicer",
     "foss": true
   },
-  "WPFInstallprucaslicer": {
+  "WPFInstallprusaslicer": {
     "category": "Utilities",
     "choco": "prusaslicer",
     "content": "PrusaSlicer",
     "description": "PrusaSlicer is a powerful and easy-to-use slicing software for 3D printing with Prusa 3D printers.",
     "link": "https://www.prusa3d.com/prusaslicer/",
-    "winget": "Prusa3d.PrusaSlicer",
+    "winget": "Prusa3D.PrusaSlicer",
     "foss": true
   },
   "WPFInstallpsremoteplay": {
@@ -8961,7 +9056,8 @@ $sync.configs.applications = @'
     "content": "PS Remote Play",
     "description": "PS Remote Play is a free application that allows you to stream games from your PlayStation console to a PC or mobile device.",
     "link": "https://remoteplay.dl.playstation.net/remoteplay/lang/gb/",
-    "winget": "PlayStation.PSRemotePlay"
+    "winget": "PlayStation.PSRemotePlay",
+    "foss": false
   },
   "WPFInstallputty": {
     "category": "Pro Tools",
@@ -9005,7 +9101,8 @@ $sync.configs.applications = @'
     "content": "Tixati",
     "description": "Tixati is a cross-platform BitTorrent client written in C++ that has been designed to be light on system resources.",
     "link": "https://www.tixati.com/",
-    "winget": "Tixati.Tixati.Portable"
+    "winget": "Tixati.Tixati.Portable",
+    "foss": false
   },
   "WPFInstallqtox": {
     "category": "Communications",
@@ -9027,7 +9124,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallrainmeter": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "rainmeter",
     "content": "Rainmeter",
     "description": "Rainmeter is a desktop customization tool that allows you to create and share customizable skins for your desktop.",
     "link": "https://www.rainmeter.net/",
@@ -9040,7 +9137,8 @@ $sync.configs.applications = @'
     "content": "Revo Uninstaller",
     "description": "Revo Uninstaller is an advanced uninstaller tool that helps you remove unwanted software and clean up your system.",
     "link": "https://www.revouninstaller.com/",
-    "winget": "RevoUninstaller.RevoUninstaller"
+    "winget": "RevoUninstaller.RevoUninstaller",
+    "foss": false
   },
   "WPFInstallWiseProgramUninstaller": {
     "category": "Utilities",
@@ -9048,7 +9146,8 @@ $sync.configs.applications = @'
     "content": "Wise Program Uninstaller (WiseCleaner)",
     "description": "Wise Program Uninstaller is the perfect solution for uninstalling Windows programs, allowing you to uninstall applications quickly and completely using its simple and user-friendly interface.",
     "link": "https://www.wisecleaner.com/wise-program-uninstaller.html",
-    "winget": "WiseCleaner.WiseProgramUninstaller"
+    "winget": "WiseCleaner.WiseProgramUninstaller",
+    "foss": false
   },
   "WPFInstallrevolt": {
     "category": "Communications",
@@ -9146,11 +9245,12 @@ $sync.configs.applications = @'
     "content": "Nilesoft Shell",
     "description": "Shell is an expanded context menu tool that adds extra functionality and customization options to the Windows context menu.",
     "link": "https://nilesoft.org/",
-    "winget": "Nilesoft.Shell"
+    "winget": "Nilesoft.Shell",
+    "foss": false
   },
   "WPFInstallsysteminformer": {
     "category": "Development",
-    "choco": "na",
+    "choco": "systeminformer",
     "content": "System Informer",
     "description": "A free, powerful, multi-purpose tool that helps you monitor system resources, debug software and detect malware.",
     "link": "https://systeminformer.com/",
@@ -9163,7 +9263,8 @@ $sync.configs.applications = @'
     "content": "SideQuestVR",
     "description": "SideQuestVR is a community-driven platform that enables users to discover, install, and manage virtual reality content on Oculus Quest devices.",
     "link": "https://sidequestvr.com/",
-    "winget": "SideQuestVR.SideQuest"
+    "winget": "SideQuestVR.SideQuest",
+    "foss": false
   },
   "WPFInstallsignal": {
     "category": "Communications",
@@ -9180,7 +9281,8 @@ $sync.configs.applications = @'
     "content": "SignalRGB",
     "description": "SignalRGB lets you control and sync your favorite RGB devices with one free application.",
     "link": "https://www.signalrgb.com/",
-    "winget": "WhirlwindFX.SignalRgb"
+    "winget": "WhirlwindFX.SignalRgb",
+    "foss": false
   },
   "WPFInstallsimplenote": {
     "category": "Document",
@@ -9206,7 +9308,8 @@ $sync.configs.applications = @'
     "content": "Slack",
     "description": "Slack is a collaboration hub that connects teams and facilitates communication through channels, messaging, and file sharing.",
     "link": "https://slack.com/",
-    "winget": "SlackTechnologies.Slack"
+    "winget": "SlackTechnologies.Slack",
+    "foss": false
   },
   "WPFInstallspacedrive": {
     "category": "Utilities",
@@ -9223,7 +9326,8 @@ $sync.configs.applications = @'
     "content": "SpaceSniffer",
     "description": "A tool application that lets you understand how folders and files are structured on your disks.",
     "link": "http://www.uderzo.it/main_products/space_sniffer/",
-    "winget": "UderzoSoftware.SpaceSniffer"
+    "winget": "UderzoSoftware.SpaceSniffer",
+    "foss": false
   },
   "WPFInstallstarship": {
     "category": "Development",
@@ -9231,7 +9335,7 @@ $sync.configs.applications = @'
     "content": "Starship (Shell Prompt)",
     "description": "Starship is a minimal, fast, and customizable prompt for any shell.",
     "link": "https://starship.rs/",
-    "winget": "starship",
+    "winget": "Starship.Starship",
     "foss": true
   },
   "WPFInstallsteam": {
@@ -9240,7 +9344,8 @@ $sync.configs.applications = @'
     "content": "Steam",
     "description": "Steam is a digital distribution platform for purchasing and playing video games, offering multiplayer gaming, video streaming, and more.",
     "link": "https://store.steampowered.com/about/",
-    "winget": "Valve.Steam"
+    "winget": "Valve.Steam",
+    "foss": false
   },
   "WPFInstallstrawberry": {
     "category": "Multimedia Tools",
@@ -9266,7 +9371,8 @@ $sync.configs.applications = @'
     "content": "Sublime Merge",
     "description": "Sublime Merge is a Git client with advanced features and a beautiful interface.",
     "link": "https://www.sublimemerge.com/",
-    "winget": "SublimeHQ.SublimeMerge"
+    "winget": "SublimeHQ.SublimeMerge",
+    "foss": false
   },
   "WPFInstallsublimetext": {
     "category": "Development",
@@ -9274,7 +9380,8 @@ $sync.configs.applications = @'
     "content": "Sublime Text",
     "description": "Sublime Text is a sophisticated text editor for code, markup, and prose.",
     "link": "https://www.sublimetext.com/",
-    "winget": "SublimeHQ.SublimeText.4"
+    "winget": "SublimeHQ.SublimeText.4",
+    "foss": false
   },
   "WPFInstallsumatra": {
     "category": "Document",
@@ -9287,11 +9394,12 @@ $sync.configs.applications = @'
   },
   "WPFInstallpdfgear": {
     "category": "Document",
-    "choco": "na",
+    "choco": "pdfgear",
     "content": "PDFgear",
     "description": "PDFgear is a piece of full-featured PDF management software for Windows, macOS, and mobile, and it's completely free to use.",
     "link": "https://www.pdfgear.com/",
-    "winget": "PDFgear.PDFgear"
+    "winget": "PDFgear.PDFgear",
+    "foss": false
   },
   "WPFInstallsunshine": {
     "category": "Games",
@@ -9335,7 +9443,8 @@ $sync.configs.applications = @'
     "content": "Microsoft SQL Server Management Studio",
     "description": "SQL Server Management Studio (SSMS) is an integrated environment for managing any SQL infrastructure, from SQL Server to Azure SQL Database. SSMS provides tools to configure, monitor, and administer instances of SQL Server and databases.",
     "link": "https://learn.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms?view=sql-server-ver16",
-    "winget": "Microsoft.SQLServerManagementStudio"
+    "winget": "Microsoft.SQLServerManagementStudio",
+    "foss": false
   },
   "WPFInstalltabby": {
     "category": "Utilities",
@@ -9352,7 +9461,7 @@ $sync.configs.applications = @'
     "content": "Tailscale",
     "description": "Tailscale is a secure and easy-to-use VPN solution for connecting your devices and networks.",
     "link": "https://tailscale.com/",
-    "winget": "tailscale.tailscale",
+    "winget": "Tailscale.Tailscale",
     "foss": true
   },
   "WPFInstallTcNoAccSwitcher": {
@@ -9370,7 +9479,8 @@ $sync.configs.applications = @'
     "content": "SysInternals TCPView",
     "description": "SysInternals TCPView is a network monitoring tool that displays a detailed list of all TCP and UDP endpoints on your system.",
     "link": "https://docs.microsoft.com/en-us/sysinternals/downloads/tcpview",
-    "winget": "Microsoft.Sysinternals.TCPView"
+    "winget": "Microsoft.Sysinternals.TCPView",
+    "foss": false
   },
   "WPFInstallteams": {
     "category": "Communications",
@@ -9378,7 +9488,8 @@ $sync.configs.applications = @'
     "content": "Teams",
     "description": "Microsoft Teams is a collaboration platform that integrates with Office 365 and offers chat, video conferencing, file sharing, and more.",
     "link": "https://www.microsoft.com/en-us/microsoft-teams/group-chat-software",
-    "winget": "Microsoft.Teams"
+    "winget": "Microsoft.Teams",
+    "foss": false
   },
   "WPFInstallteamviewer": {
     "category": "Utilities",
@@ -9386,7 +9497,17 @@ $sync.configs.applications = @'
     "content": "TeamViewer",
     "description": "TeamViewer is a popular remote access and support software that allows you to connect to and control remote devices.",
     "link": "https://www.teamviewer.com/",
-    "winget": "TeamViewer.TeamViewer"
+    "winget": "TeamViewer.TeamViewer",
+    "foss": false
+  },
+  "WPFInstalltodoist": {
+    "category": "Utilities",
+    "choco": "todoist-desktop",
+    "content": "Todoist",
+    "description": "Join 50+ million professionals who simplify work and life with the world?s #1 to-do list app.",
+    "link": "https://www.todoist.com/",
+    "winget": "Doist.Todoist",
+    "foss": false
   },
   "WPFInstallteamspeak3": {
     "category": "Utilities",
@@ -9394,7 +9515,8 @@ $sync.configs.applications = @'
     "content": "TeamSpeak 3",
     "description": "TEAMSPEAK. YOUR TEAM. YOUR RULES. Use crystal clear sound to communicate with your team mates cross-platform with military-grade security, lag-free performance & unparalleled reliability and uptime.",
     "link": "https://www.teamspeak.com/",
-    "winget": "TeamSpeakSystems.TeamSpeakClient"
+    "winget": "TeamSpeakSystems.TeamSpeakClient",
+    "foss": false
   },
   "WPFInstalltelegram": {
     "category": "Communications",
@@ -9411,7 +9533,7 @@ $sync.configs.applications = @'
     "content": "Unigram",
     "description": "Unigram - Telegram for Windows.",
     "link": "https://unigramdev.github.io/",
-    "winget": "Telegram.Unigram",
+    "winget": "9N97ZCKPD60Q",
     "foss": true
   },
   "WPFInstallterminal": {
@@ -9470,11 +9592,12 @@ $sync.configs.applications = @'
   },
   "WPFInstalltidal": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "tidal",
     "content": "Tidal",
     "description": "Tidal is a music streaming service known for its high-fidelity audio quality and exclusive content. It offers a vast library of songs and curated playlists.",
     "link": "https://tidal.com/",
-    "winget": "9NNCB5BS59PH"
+    "winget": "9NNCB5BS59PH",
+    "foss": false
   },
   "WPFInstalltor": {
     "category": "Browsers",
@@ -9491,7 +9614,8 @@ $sync.configs.applications = @'
     "content": "Total Commander",
     "description": "Total Commander is a file manager for Windows that provides a powerful and intuitive interface for file management.",
     "link": "https://www.ghisler.com/",
-    "winget": "Ghisler.TotalCommander"
+    "winget": "Ghisler.TotalCommander",
+    "foss": false
   },
   "WPFInstalltreesize": {
     "category": "Utilities",
@@ -9499,7 +9623,8 @@ $sync.configs.applications = @'
     "content": "TreeSize Free",
     "description": "TreeSize Free is a disk space manager that helps you analyze and visualize the space usage on your drives.",
     "link": "https://www.jam-software.com/treesize_free/",
-    "winget": "JAMSoftware.TreeSize.Free"
+    "winget": "JAMSoftware.TreeSize.Free",
+    "foss": false
   },
   "WPFInstallttaskbar": {
     "category": "Utilities",
@@ -9525,7 +9650,8 @@ $sync.configs.applications = @'
     "content": "Ubisoft Connect",
     "description": "Ubisoft Connect is Ubisoft's digital distribution and online gaming service, providing access to Ubisoft's games and services.",
     "link": "https://ubisoftconnect.com/",
-    "winget": "Ubisoft.Connect"
+    "winget": "Ubisoft.Connect",
+    "foss": false
   },
   "WPFInstallungoogled": {
     "category": "Browsers",
@@ -9542,7 +9668,17 @@ $sync.configs.applications = @'
     "content": "Unity Game Engine",
     "description": "Unity is a powerful game development platform for creating 2D, 3D, augmented reality, and virtual reality games.",
     "link": "https://unity.com/",
-    "winget": "Unity.UnityHub"
+    "winget": "Unity.UnityHub",
+    "foss": false
+  },
+  "WPFInstallveravrypt": {
+    "category": "Utilities",
+    "choco": "veracrypt",
+    "content": "VeraCrypt",
+    "description": "Disk encryption with strong security based on TrueCrypt.",
+    "link": "https://github.com/veracrypt/VeraCrypt/",
+    "winget": "IDRIX.VeraCrypt",
+    "foss": true
   },
   "WPFInstallvagrant": {
     "category": "Development",
@@ -9559,7 +9695,8 @@ $sync.configs.applications = @'
     "content": "Visual C++ 2015-2022 32-bit",
     "description": "Visual C++ 2015-2022 32-bit redistributable package installs runtime components of Visual C++ libraries required to run 32-bit applications.",
     "link": "https://support.microsoft.com/en-us/help/2977003/the-latest-supported-visual-c-downloads",
-    "winget": "Microsoft.VCRedist.2015+.x86"
+    "winget": "Microsoft.VCRedist.2015+.x86",
+    "foss": false
   },
   "WPFInstallvc2015_64": {
     "category": "Microsoft Tools",
@@ -9567,7 +9704,8 @@ $sync.configs.applications = @'
     "content": "Visual C++ 2015-2022 64-bit",
     "description": "Visual C++ 2015-2022 64-bit redistributable package installs runtime components of Visual C++ libraries required to run 64-bit applications.",
     "link": "https://support.microsoft.com/en-us/help/2977003/the-latest-supported-visual-c-downloads",
-    "winget": "Microsoft.VCRedist.2015+.x64"
+    "winget": "Microsoft.VCRedist.2015+.x64",
+    "foss": false
   },
   "WPFInstallventoy": {
     "category": "Pro Tools",
@@ -9593,7 +9731,8 @@ $sync.configs.applications = @'
     "content": "Viber",
     "description": "Viber is a free messaging and calling app with features like group chats, video calls, and more.",
     "link": "https://www.viber.com/",
-    "winget": "Rakuten.Viber"
+    "winget": "Rakuten.Viber",
+    "foss": false
   },
   "WPFInstallvideomass": {
     "category": "Multimedia Tools",
@@ -9610,7 +9749,8 @@ $sync.configs.applications = @'
     "content": "Visual Studio 2022",
     "description": "Visual Studio 2022 is an integrated development environment (IDE) for building, debugging, and deploying applications.",
     "link": "https://visualstudio.microsoft.com/",
-    "winget": "Microsoft.VisualStudio.2022.Community"
+    "winget": "Microsoft.VisualStudio.2022.Community",
+    "foss": false
   },
   "WPFInstallvisualstudio2026": {
     "category": "Development",
@@ -9618,7 +9758,8 @@ $sync.configs.applications = @'
     "content": "Visual Studio 2026",
     "description": "Visual Studio 2026 is an integrated development environment (IDE) for building, debugging, and deploying applications.",
     "link": "https://visualstudio.microsoft.com/",
-    "winget": "Microsoft.VisualStudio.2026.Community"
+    "winget": "Microsoft.VisualStudio.Community",
+    "foss": false
   },
   "WPFInstallvivaldi": {
     "category": "Browsers",
@@ -9626,7 +9767,8 @@ $sync.configs.applications = @'
     "content": "Vivaldi",
     "description": "Vivaldi is a highly customizable web browser with a focus on user personalization and productivity features.",
     "link": "https://vivaldi.com/",
-    "winget": "Vivaldi.Vivaldi"
+    "winget": "Vivaldi.Vivaldi",
+    "foss": false
   },
   "WPFInstallvlc": {
     "category": "Multimedia Tools",
@@ -9643,7 +9785,8 @@ $sync.configs.applications = @'
     "content": "Voicemeeter (Audio)",
     "description": "Voicemeeter is a virtual audio mixer that allows you to manage and enhance audio streams on your computer. It is commonly used for audio recording and streaming purposes.",
     "link": "https://voicemeeter.com/",
-    "winget": "VB-Audio.Voicemeeter"
+    "winget": "VB-Audio.Voicemeeter",
+    "foss": false
   },
   "WPFInstallVoicemeeterPotato": {
     "category": "Multimedia Tools",
@@ -9651,7 +9794,8 @@ $sync.configs.applications = @'
     "content": "Voicemeeter Potato",
     "description": "Voicemeeter Potato is the ultimate version of the Voicemeeter Audio Mixer Application endowed with Virtual Audio Device to mix and manage any audio sources from or to any audio devices or applications.",
     "link": "https://voicemeeter.com/",
-    "winget": "VB-Audio.Voicemeeter.Potato"
+    "winget": "VB-Audio.Voicemeeter.Potato",
+    "foss": false
   },
   "WPFInstallvrdesktopstreamer": {
     "category": "Games",
@@ -9659,7 +9803,8 @@ $sync.configs.applications = @'
     "content": "Virtual Desktop Streamer",
     "description": "Virtual Desktop Streamer is a tool that allows you to stream your desktop screen to VR devices.",
     "link": "https://www.vrdesktop.net/",
-    "winget": "VirtualDesktop.Streamer"
+    "winget": "VirtualDesktop.Streamer",
+    "foss": false
   },
   "WPFInstallvscode": {
     "category": "Development",
@@ -9712,7 +9857,8 @@ $sync.configs.applications = @'
     "content": "Windows PC Health Check",
     "description": "Windows PC Health Check is a tool that helps you check if your PC meets the system requirements for Windows 11.",
     "link": "https://support.microsoft.com/en-us/windows/how-to-use-the-pc-health-check-app-9c8abd9b-03ba-4e67-81ef-36f37caa7844",
-    "winget": "Microsoft.WindowsPCHealthCheck"
+    "winget": "Microsoft.WindowsPCHealthCheck",
+    "foss": false
   },
   "WPFInstallWindowGrid": {
     "category": "Utilities",
@@ -9720,7 +9866,8 @@ $sync.configs.applications = @'
     "content": "WindowGrid",
     "description": "WindowGrid is a modern window management program for Windows that allows the user to quickly and easily layout their windows on a dynamic grid using just the mouse.",
     "link": "http://windowgrid.net/",
-    "winget": "na"
+    "winget": "na",
+    "foss": false
   },
   "WPFInstallwingetui": {
     "category": "Utilities",
@@ -9755,7 +9902,8 @@ $sync.configs.applications = @'
     "content": "WinRAR",
     "description": "WinRAR is a powerful archive manager that allows you to create, manage, and extract compressed files.",
     "link": "https://www.win-rar.com/",
-    "winget": "RARLab.WinRAR"
+    "winget": "RARLab.WinRAR",
+    "foss": false
   },
   "WPFInstallwinscp": {
     "category": "Pro Tools",
@@ -9790,7 +9938,8 @@ $sync.configs.applications = @'
     "content": "WiseToys",
     "description": "WiseToys is a set of utilities and tools designed to enhance and optimize your Windows experience.",
     "link": "https://toys.wisecleaner.com/",
-    "winget": "WiseCleaner.WiseToys"
+    "winget": "WiseCleaner.WiseToys",
+    "foss": false
   },
   "WPFInstallTeraCopy": {
     "category": "Utilities",
@@ -9798,15 +9947,17 @@ $sync.configs.applications = @'
     "content": "TeraCopy",
     "description": "Copy your files faster and more securely.",
     "link": "https://codesector.com/teracopy",
-    "winget": "CodeSector.TeraCopy"
+    "winget": "CodeSector.TeraCopy",
+    "foss": false
   },
   "WPFInstallwizfile": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "wizfile",
     "content": "WizFile",
     "description": "Find files by name on your hard drives almost instantly.",
     "link": "https://antibody-software.com/wizfile/",
-    "winget": "AntibodySoftware.WizFile"
+    "winget": "AntibodySoftware.WizFile",
+    "foss": false
   },
   "WPFInstallwiztree": {
     "category": "Utilities",
@@ -9814,16 +9965,8 @@ $sync.configs.applications = @'
     "content": "WizTree",
     "description": "WizTree is a fast disk space analyzer that helps you quickly find the files and folders consuming the most space on your hard drive.",
     "link": "https://wiztreefree.com/",
-    "winget": "AntibodySoftware.WizTree"
-  },
-  "WPFInstallxdm": {
-    "category": "Utilities",
-    "choco": "xdm",
-    "content": "Xtreme Download Manager",
-    "description": "Xtreme Download Manager is an advanced download manager with support for various protocols and browsers. *Browser integration deprecated by google store. No official release.*",
-    "link": "https://xtremedownloadmanager.com/",
-    "winget": "subhra74.XtremeDownloadManager",
-    "foss": true
+    "winget": "AntibodySoftware.WizTree",
+    "foss": false
   },
   "WPFInstallxeheditor": {
     "category": "Utilities",
@@ -9831,7 +9974,8 @@ $sync.configs.applications = @'
     "content": "HxD Hex Editor",
     "description": "HxD is a free hex editor that allows you to edit, view, search, and analyze binary files.",
     "link": "https://mh-nexus.de/en/hxd/",
-    "winget": "MHNexus.HxD"
+    "winget": "MHNexus.HxD",
+    "foss": false
   },
   "WPFInstallxemu": {
     "category": "Games",
@@ -9848,7 +9992,8 @@ $sync.configs.applications = @'
     "content": "XnView classic",
     "description": "XnView is an efficient image viewer, browser and converter for Windows.",
     "link": "https://www.xnview.com/en/xnview/",
-    "winget": "XnSoft.XnView.Classic"
+    "winget": "XnSoft.XnView.Classic",
+    "foss": false
   },
   "WPFInstallxournal": {
     "category": "Document",
@@ -9866,6 +10011,15 @@ $sync.configs.applications = @'
     "description": "XPipe is an open-source tool for orchestrating containerized applications. It simplifies the deployment and management of containerized services in a distributed environment.",
     "link": "https://xpipe.io/",
     "winget": "xpipe-io.xpipe",
+    "foss": true
+  },
+  "WPFInstallyasb": {
+    "category": "Utilities",
+    "choco": "na",
+    "content": "YASB",
+    "description": "YASB (Yet Another Status Bar) is a highly configurable status bar for Windows, written in Python, with support for many widgets, easy theming, and deep customization.",
+    "link": "https://yasb.dev/",
+    "winget": "AmN.yasb",
     "foss": true
   },
   "WPFInstallyarn": {
@@ -9892,7 +10046,8 @@ $sync.configs.applications = @'
     "content": "ZeroTier One",
     "description": "ZeroTier One is a software-defined networking tool that allows you to create secure and scalable networks.",
     "link": "https://zerotier.com/",
-    "winget": "ZeroTier.ZeroTierOne"
+    "winget": "ZeroTier.ZeroTierOne",
+    "foss": false
   },
   "WPFInstallzim": {
     "category": "Document",
@@ -9918,15 +10073,17 @@ $sync.configs.applications = @'
     "content": "Zoom",
     "description": "Zoom is a popular video conferencing and web conferencing service for online meetings, webinars, and collaborative projects.",
     "link": "https://zoom.us/",
-    "winget": "Zoom.Zoom"
+    "winget": "Zoom.Zoom",
+    "foss": false
   },
   "WPFInstallzoomit": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "zoomit",
     "content": "ZoomIt",
     "description": "A screen zoom, annotation, and recording tool for technical presentations and demos.",
     "link": "https://learn.microsoft.com/en-us/sysinternals/downloads/zoomit",
-    "winget": "Microsoft.Sysinternals.ZoomIt"
+    "winget": "Microsoft.Sysinternals.ZoomIt",
+    "foss": false
   },
   "WPFInstallzotero": {
     "category": "Document",
@@ -10000,6 +10157,15 @@ $sync.configs.applications = @'
     "winget": "Intel.PresentMon.Beta",
     "foss": true
   },
+  "WPFInstalluv": {
+    "category": "Development",
+    "choco": "uv",
+    "content": "uv",
+    "description": "uv is a fast Python package and project manager written in Rust.",
+    "link": "https://docs.astral.sh/uv/getting-started/installation/",
+    "winget": "astral-sh.uv",
+    "foss": true
+  },
   "WPFInstallpyenvwin": {
     "category": "Development",
     "choco": "pyenv-win",
@@ -10024,7 +10190,7 @@ $sync.configs.applications = @'
     "content": "UltraVNC",
     "description": "UltraVNC is a powerful, easy to use and free - remote pc access software - that can display the screen of another computer (via internet or network) on your own screen. The program allows you to use your mouse and keyboard to control the other PC remotely. It means that you can work on a remote computer, as if you were sitting in front of it, right from your current location.",
     "link": "https://uvnc.com/",
-    "winget": "uvncbvba.UltraVnc",
+    "winget": "uvncbvba.UltraVNC",
     "foss": true
   },
   "WPFInstallwindowsfirewallcontrol": {
@@ -10033,7 +10199,8 @@ $sync.configs.applications = @'
     "content": "Windows Firewall Control",
     "description": "Windows Firewall Control is a powerful tool which extends the functionality of Windows Firewall and provides new extra features which makes Windows Firewall better.",
     "link": "https://www.binisoft.org/wfc",
-    "winget": "BiniSoft.WindowsFirewallControl"
+    "winget": "BiniSoft.WindowsFirewallControl",
+    "foss": false
   },
   "WPFInstallvistaswitcher": {
     "category": "Utilities",
@@ -10041,7 +10208,8 @@ $sync.configs.applications = @'
     "content": "VistaSwitcher",
     "description": "VistaSwitcher makes it easier for you to locate windows and switch focus, even on multi-monitor systems. The switcher window consists of an easy-to-read list of all tasks running with clearly shown titles and a full-sized preview of the selected task.",
     "link": "https://www.ntwind.com/freeware/vistaswitcher.html",
-    "winget": "ntwind.VistaSwitcher"
+    "winget": "ntwind.VistaSwitcher",
+    "foss": false
   },
   "WPFInstallautodarkmode": {
     "category": "Utilities",
@@ -10049,7 +10217,7 @@ $sync.configs.applications = @'
     "content": "Windows Auto Dark Mode",
     "description": "Automatically switches between the dark and light theme of Windows 10 and Windows 11.",
     "link": "https://github.com/AutoDarkMode/Windows-Auto-Night-Mode",
-    "winget": "Armin2208.WindowsAutoNightMode",
+    "winget": "ArminOsaj.AutoDarkMode",
     "foss": true
   },
   "WPFInstallAmbieWhiteNoise": {
@@ -10099,7 +10267,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallglazewm": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "glazewm",
     "content": "GlazeWM",
     "description": "GlazeWM is a tiling window manager for Windows inspired by i3 and Polybar.",
     "link": "https://github.com/glzr-io/glazewm",
@@ -10130,7 +10298,8 @@ $sync.configs.applications = @'
     "content": "Windhawk",
     "description": "The customization marketplace for Windows programs.",
     "link": "https://windhawk.net",
-    "winget": "RamenSoftware.Windhawk"
+    "winget": "RamenSoftware.Windhawk",
+    "foss": true
   },
   "WPFInstallForceAutoHDR": {
     "category": "Utilities",
@@ -10147,7 +10316,8 @@ $sync.configs.applications = @'
     "content": "JoyToKey",
     "description": "Enables PC game controllers to emulate the keyboard and mouse input.",
     "link": "https://joytokey.net/en/",
-    "winget": "JTKsoftware.JoyToKey"
+    "winget": "JTKsoftware.JoyToKey",
+    "foss": false
   },
   "WPFInstallnditools": {
     "category": "Multimedia Tools",
@@ -10155,11 +10325,12 @@ $sync.configs.applications = @'
     "content": "NDI Tools",
     "description": "NDI, or Network Device Interface, is a video connectivity standard that enables multimedia systems to identify and communicate with one another over IP and to encode, transmit, and receive high-quality, low latency, frame-accurate video and audio, and exchange metadata in real-time.",
     "link": "https://ndi.video/",
-    "winget": "NDI.NDITools"
+    "winget": "NDI.NDITools",
+    "foss": false
   },
   "WPFInstallkicad": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "kicad",
     "content": "Kicad",
     "description": "Kicad is an open-source EDA tool. It's a good starting point for those who want to do electrical design and is even used by professionals in the industry.",
     "link": "https://www.kicad.org/",
@@ -10168,11 +10339,12 @@ $sync.configs.applications = @'
   },
   "WPFInstalldropox": {
     "category": "Utilities",
-    "choco": "na",
+    "choco": "dropbox",
     "content": "Dropbox",
     "description": "The Dropbox desktop app! Save hard drive space, share and edit files and send for signature ? all without the distraction of countless browser tabs.",
     "link": "https://www.dropbox.com/en_GB/desktop",
-    "winget": "Dropbox.Dropbox"
+    "winget": "Dropbox.Dropbox",
+    "foss": false
   },
   "WPFInstallOverwolf": {
     "category": "Games",
@@ -10180,7 +10352,8 @@ $sync.configs.applications = @'
     "content": "Overwolf",
     "description": "Popular platform for game overlays and companion apps (mod managers, trackers, etc.), widely used by gamers.",
     "link": "https://www.overwolf.com/app/overwolf-curseforge",
-    "winget": "Overwolf.CurseForge"
+    "winget": "Overwolf.CurseForge",
+    "foss": false
   },
   "WPFInstallOFGB": {
     "category": "Utilities",
@@ -10238,7 +10411,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallSubtitleEdit": {
     "category": "Multimedia Tools",
-    "choco": "na",
+    "choco": "subtitleedit",
     "content": "Subtitle Edit",
     "description": "Subtitle Edit is a free and open-source editor for video subtitles.",
     "link": "https://github.com/SubtitleEdit/subtitleedit",
@@ -10251,11 +10424,12 @@ $sync.configs.applications = @'
     "content": "Fork",
     "description": "Fork - a fast and friendly git client.",
     "link": "https://git-fork.com/",
-    "winget": "Fork.Fork"
+    "winget": "Fork.Fork",
+    "foss": false
   },
   "WPFInstallZenBrowser": {
     "category": "Browsers",
-    "choco": "na",
+    "choco": "zen-browser",
     "content": "Zen Browser",
     "description": "The modern, privacy-focused, performance-driven browser built on Firefox.",
     "link": "https://zen-browser.app/",
@@ -10264,7 +10438,7 @@ $sync.configs.applications = @'
   },
   "WPFInstallZed": {
     "category": "Development",
-    "choco": "na",
+    "choco": "zed",
     "content": "Zed",
     "description": "Zed is a modern, high-performance code editor designed from the ground up for speed and collaboration.",
     "link": "https://zed.dev/",
@@ -10292,7 +10466,7 @@ $sync.configs.applications = @'
   "WPFInstallRuby": {
     "category": "Development",
     "choco": "ruby",
-    "winget": "RubyInstallerTeam.RubyWithDevkit.3.4",
+    "winget": "RubyInstallerTeam.Ruby.4.0",
     "description": "A Ruby language execution environment with a MSYS2 installation.",
     "content": "Ruby",
     "link": "https://rubyinstaller.org/",
@@ -10850,7 +11024,7 @@ $sync.configs.themes = @'
     "ScrollBarBackgroundColor": "#4A4D52",
     "ScrollBarHoverColor": "#5A5D62",
     "ScrollBarDraggingColor": "#6A6D72",
-    "ProgressBarForegroundColor": "#2e77ff",
+    "ProgressBarForegroundColor": "#2E77FF",
     "ProgressBarBackgroundColor": "Transparent",
     "ProgressBarTextColor": "#232629",
     "ButtonInstallBackgroundColor": "#F7F7F7",
@@ -10868,7 +11042,7 @@ $sync.configs.themes = @'
     "ButtonBackgroundMouseoverColor": "#C2C2C2",
     "ButtonBackgroundSelectedColor": "#F0F0F0",
     "ButtonForegroundColor": "#232629",
-    "ToggleButtonOnColor": "#2e77ff",
+    "ToggleButtonOnColor": "#2E77FF",
     "ToggleButtonOffColor": "#707070",
     "ToolTipBackgroundColor": "#F7F7F7",
     "BorderColor": "#232629",
@@ -10881,11 +11055,11 @@ $sync.configs.themes = @'
     "AppInstallOverlayBackgroundColor": "#2E3135",
     "ComboBoxForegroundColor": "#F7F7F7",
     "ComboBoxBackgroundColor": "#1E3747",
-    "LabelboxForegroundColor": "#5bdcff",
+    "LabelboxForegroundColor": "#5BDCFF",
     "MainForegroundColor": "#F7F7F7",
     "MainBackgroundColor": "#232629",
     "LabelBackgroundColor": "#232629",
-    "LinkForegroundColor": "#add8e6",
+    "LinkForegroundColor": "#ADD8E6",
     "LinkHoverForegroundColor": "#F7F7F7",
     "ScrollBarBackgroundColor": "#2E3135",
     "ScrollBarHoverColor": "#3B4252",
@@ -10908,7 +11082,7 @@ $sync.configs.themes = @'
     "ButtonBackgroundMouseoverColor": "#3B4252",
     "ButtonBackgroundSelectedColor": "#5E81AC",
     "ButtonForegroundColor": "#F7F7F7",
-    "ToggleButtonOnColor": "#2e77ff",
+    "ToggleButtonOnColor": "#2E77FF",
     "ToggleButtonOffColor": "#707070",
     "ToolTipBackgroundColor": "#2F373D",
     "BorderColor": "#2F373D",
@@ -11021,6 +11195,13 @@ $sync.configs.tweaks = @'
     "Description": "关闭定位相关权限/服务，阻止系统与应用获取你的地理位置。",
     "category": "基础优化",
     "panel": "1",
+    "service": [
+      {
+        "Name": "lfsvc",
+        "StartupType": "Disable",
+        "OriginalType": "Manual"
+      }
+    ],
     "registry": [
       {
         "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\location",
@@ -11032,13 +11213,6 @@ $sync.configs.tweaks = @'
       {
         "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Sensor\\Overrides\\{BFA794E4-F964-4FDB-90F6-51056BFE4B44}",
         "Name": "SensorPermissionState",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "1"
-      },
-      {
-        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\lfsvc\\Service\\Configuration",
-        "Name": "Status",
         "Value": "0",
         "Type": "DWord",
         "OriginalValue": "1"
@@ -11060,124 +11234,9 @@ $sync.configs.tweaks = @'
     "panel": "1",
     "service": [
       {
-        "Name": "ALG",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "AppMgmt",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "AppReadiness",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "AppVClient",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "Appinfo",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "AssignedAccessManagerSvc",
-        "StartupType": "Disabled",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "AudioEndpointBuilder",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "AudioSrv",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "Audiosrv",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "AxInstSV",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "BDESVC",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "BITS",
-        "StartupType": "AutomaticDelayedStart",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "BTAGService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "BthAvctpSvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "CDPSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "COMSysApp",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "CertPropSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "CryptSvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
         "Name": "CscService",
-        "StartupType": "Manual",
+        "StartupType": "Disabled",
         "OriginalType": "Manual"
-      },
-      {
-        "Name": "DPS",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "DevQueryBroker",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "DeviceAssociationService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "DeviceInstall",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Dhcp",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
       },
       {
         "Name": "DiagTrack",
@@ -11185,249 +11244,9 @@ $sync.configs.tweaks = @'
         "OriginalType": "Automatic"
       },
       {
-        "Name": "DialogBlockingService",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "DispBrokerDesktopSvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "DisplayEnhancementService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "EFS",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "EapHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "EventLog",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "EventSystem",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "FDResPub",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "FontCache",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "FrameServer",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "FrameServerMonitor",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "GraphicsPerfSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "HvHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "IKEEXT",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "InstallService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "InventorySvc",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "IpxlatCfgSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "KeyIso",
-        "StartupType": "Automatic",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "KtmRm",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "LanmanServer",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "LanmanWorkstation",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "LicenseManager",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "LxpSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "MSDTC",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "MSiSCSI",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
         "Name": "MapsBroker",
-        "StartupType": "AutomaticDelayedStart",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "McpManagementService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "MicrosoftEdgeElevationService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NaturalAuthentication",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NcaSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NcbService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NcdAutoSetup",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NetSetupSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NetTcpPortSharing",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "Netman",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "NlaSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "PcaSvc",
         "StartupType": "Manual",
         "OriginalType": "Automatic"
-      },
-      {
-        "Name": "PeerDistSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "PerfHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "PhoneSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "PlugPlay",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "PolicyAgent",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Power",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "PrintNotify",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "ProfSvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "PushToInstall",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "QWAVE",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "RasAuto",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "RasMan",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
       },
       {
         "Name": "RemoteAccess",
@@ -11440,134 +11259,14 @@ $sync.configs.tweaks = @'
         "OriginalType": "Disabled"
       },
       {
-        "Name": "RetailDemo",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "RmSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "RpcLocator",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SCPolicySvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SCardSvr",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SDRSVC",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SEMgrSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SENS",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "SNMPTRAP",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SNMPTrap",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SSDPSRV",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SamSs",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "ScDeviceEnum",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SensorDataService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SensorService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SensrSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SessionEnv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "SharedAccess",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "ShellHWDetection",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "SmsRouter",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Spooler",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "SstpSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "StiSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
         "Name": "StorSvc",
         "StartupType": "Manual",
         "OriginalType": "Automatic"
       },
       {
-        "Name": "SysMain",
-        "StartupType": "Automatic",
+        "Name": "SharedAccess",
+        "StartupType": "Disabled",
         "OriginalType": "Automatic"
-      },
-      {
-        "Name": "TapiSrv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
       },
       {
         "Name": "TermService",
@@ -11575,307 +11274,7 @@ $sync.configs.tweaks = @'
         "OriginalType": "Manual"
       },
       {
-        "Name": "Themes",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "TieringEngineService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "TokenBroker",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "TrkWks",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
         "Name": "TroubleshootingSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "TrustedInstaller",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "UevAgentService",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "UmRdpService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "UserManager",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "UsoSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "VSS",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "VaultSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "W32Time",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WEPHOSTSVC",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WFDSConMgrSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WMPNetworkSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WManSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WPDBusEnum",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WSAIFabricSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "WSearch",
-        "StartupType": "AutomaticDelayedStart",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "WalletService",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WarpJITSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WbioSrvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Wcmsvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "WdiServiceHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WdiSystemHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WebClient",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Wecsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WerSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WiaRpc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WinRM",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "Winmgmt",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "WpcMonSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "WpnService",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "XblAuthManager",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "XblGameSave",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "XboxGipSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "XboxNetApiSvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "autotimesvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "bthserv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "camsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "cloudidsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "dcsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "defragsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "diagsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "dmwappushservice",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "dot3svc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "edgeupdate",
-        "StartupType": "Manual",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "edgeupdatem",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "fdPHost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "fhsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "hidserv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "icssvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "iphlpsvc",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "lfsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "lltdsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "lmhosts",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "netprofm",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "nsi",
-        "StartupType": "Automatic",
-        "OriginalType": "Automatic"
-      },
-      {
-        "Name": "perceptionsimulation",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "pla",
         "StartupType": "Manual",
         "OriginalType": "Manual"
       },
@@ -11885,135 +11284,13 @@ $sync.configs.tweaks = @'
         "OriginalType": "Manual"
       },
       {
-        "Name": "shpamsvc",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "smphost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
         "Name": "ssh-agent",
         "StartupType": "Disabled",
         "OriginalType": "Disabled"
-      },
-      {
-        "Name": "svsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "swprv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "tzautoupdate",
-        "StartupType": "Disabled",
-        "OriginalType": "Disabled"
-      },
-      {
-        "Name": "upnphost",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vds",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicguestinterface",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicheartbeat",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmickvpexchange",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicrdv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicshutdown",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmictimesync",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicvmsession",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "vmicvss",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wbengine",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wcncsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "webthreatdefsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wercplsupport",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wisvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wlidsvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wlpasvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wmiApSrv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "workfolderssvc",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
-      },
-      {
-        "Name": "wuauserv",
-        "StartupType": "Manual",
-        "OriginalType": "Manual"
       }
+    ],
+    "InvokeScript": [
+      "\r\n      $Memory = (Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1KB\r\n      Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\" -Name SvcHostSplitThresholdInKB -Value $Memory\r\n      "
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/essential-tweaks/services"
   },
@@ -12060,6 +11337,29 @@ $sync.configs.tweaks = @'
       }
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/z--advanced-tweaks---caution/bravedebloat"
+  },
+  "WPFTweaksDisableWarningForUnsignedRdp": {
+    "Content": "禁用未签名 RDP 文件警告",
+    "Description": "关闭新版 Windows 10/11 在启动未签名 RDP 文件时显示的安全警告。仅在你信任这些 RDP 文件来源时使用。",
+    "category": "z__高级优化 - 谨慎",
+    "panel": "1",
+    "registry": [
+      {
+        "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\Client",
+        "Name": "RedirectionWarningDialogVersion",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "<RemoveEntry>"
+      },
+      {
+        "Path": "HKCU:\\SOFTWARE\\Microsoft\\Terminal Server Client",
+        "Name": "RdpLaunchConsentAccepted",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "<RemoveEntry>"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/z--advanced-tweaks---caution/disablewarningforunsignedrdp"
   },
   "WPFTweaksEdgeDebloat": {
     "Content": "Edge 浏览器精简",
@@ -12297,7 +11597,7 @@ $sync.configs.tweaks = @'
       }
     ],
     "InvokeScript": [
-      "\r\n      # Disable Defender Auto Sample Submission\r\n      Set-MpPreference -SubmitSamplesConsent 2\r\n\r\n      # Disable (Connected User Experiences and Telemetry) Service\r\n      Set-Service -Name diagtrack -StartupType Disabled\r\n\r\n      # Disable (Windows Error Reporting Manager) Service\r\n      Set-Service -Name wermgr -StartupType Disabled\r\n\r\n      $Memory = (Get-CimInstance Win32_PhysicalMemory | Measure-Object Capacity -Sum).Sum / 1KB\r\n      Set-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Control\" -Name SvcHostSplitThresholdInKB -Value $Memory\r\n\r\n      Remove-ItemProperty -Path \"HKCU:\\Software\\Microsoft\\Siuf\\Rules\" -Name PeriodInNanoSeconds\r\n      "
+      "\r\n      # Disable Defender Auto Sample Submission\r\n      Set-MpPreference -SubmitSamplesConsent 2\r\n\r\n      # Disable (Connected User Experiences and Telemetry) Service\r\n      Set-Service -Name diagtrack -StartupType Disabled\r\n\r\n      # Disable (Windows Error Reporting Manager) Service\r\n      Set-Service -Name wermgr -StartupType Disabled\r\n\r\n      Remove-ItemProperty -Path \"HKCU:\\Software\\Microsoft\\Siuf\\Rules\" -Name PeriodInNanoSeconds\r\n      "
     ],
     "UndoScript": [
       "\r\n      # Enable Defender Auto Sample Submission\r\n      Set-MpPreference -SubmitSamplesConsent 1\r\n\r\n      # Enable (Connected User Experiences and Telemetry) Service\r\n      Set-Service -Name diagtrack -StartupType Automatic\r\n\r\n      # Enable (Windows Error Reporting Manager) Service\r\n      Set-Service -Name wermgr -StartupType Automatic\r\n      "
@@ -12500,73 +11800,25 @@ $sync.configs.tweaks = @'
     "category": "z__高级优化 - 谨慎",
     "panel": "1",
     "appx": [
-      "Microsoft.Microsoft3DViewer",
-      "Microsoft.AppConnector",
-      "Microsoft.BingFinance",
+      "Microsoft.WindowsFeedbackHub",
       "Microsoft.BingNews",
-      "Microsoft.BingSports",
-      "Microsoft.BingTranslator",
+      "Microsoft.BingSearch",
       "Microsoft.BingWeather",
-      "Microsoft.BingFoodAndDrink",
-      "Microsoft.BingHealthAndFitness",
-      "Microsoft.BingTravel",
       "Clipchamp.Clipchamp",
       "Microsoft.Todos",
-      "MicrosoftCorporationII.QuickAssist",
-      "Microsoft.MicrosoftStickyNotes",
-      "Microsoft.GetHelp",
-      "Microsoft.GetStarted",
-      "Microsoft.Messaging",
+      "Microsoft.PowerAutomateDesktop",
       "Microsoft.MicrosoftSolitaireCollection",
-      "Microsoft.NetworkSpeedTest",
-      "Microsoft.News",
-      "Microsoft.Office.Lens",
-      "Microsoft.Office.Sway",
-      "Microsoft.Office.OneNote",
-      "Microsoft.OneConnect",
-      "Microsoft.People",
-      "Microsoft.Print3D",
-      "Microsoft.SkypeApp",
-      "Microsoft.Wallet",
-      "Microsoft.Whiteboard",
-      "Microsoft.WindowsAlarms",
-      "Microsoft.WindowsCommunicationsApps",
-      "Microsoft.WindowsFeedbackHub",
-      "Microsoft.WindowsMaps",
       "Microsoft.WindowsSoundRecorder",
-      "Microsoft.ConnectivityStore",
-      "Microsoft.ScreenSketch",
-      "Microsoft.MixedReality.Portal",
+      "Microsoft.MicrosoftStickyNotes",
+      "Microsoft.Windows.DevHome",
+      "Microsoft.Paint",
+      "Microsoft.OutlookForWindows",
+      "Microsoft.WindowsAlarms",
+      "Microsoft.StartExperiencesApp",
+      "Microsoft.GetHelp",
       "Microsoft.ZuneMusic",
-      "Microsoft.ZuneVideo",
-      "Microsoft.MicrosoftOfficeHub",
-      "MsTeams",
-      "*EclipseManager*",
-      "*ActiproSoftwareLLC*",
-      "*AdobeSystemsIncorporated.AdobePhotoshopExpress*",
-      "*Duolingo-LearnLanguagesforFree*",
-      "*PandoraMediaInc*",
-      "*CandyCrush*",
-      "*BubbleWitch3Saga*",
-      "*Wunderlist*",
-      "*Flipboard*",
-      "*Twitter*",
-      "*Facebook*",
-      "*Royal Revolt*",
-      "*Sway*",
-      "*Speed Test*",
-      "*Dolby*",
-      "*Viber*",
-      "*ACGMediaPlayer*",
-      "*Netflix*",
-      "*OneCalendar*",
-      "*LinkedInForWindows*",
-      "*HiddenCityMysteryofShadows*",
-      "*Hulu*",
-      "*HiddenCity*",
-      "*AdobePhotoshopExpress*",
-      "*HotspotShieldFreeVPN*",
-      "*Microsoft.Advertising.Xaml*"
+      "MicrosoftCorporationII.QuickAssist",
+      "MSTeams"
     ],
     "InvokeScript": [
       "\r\n      $TeamsPath = \"$Env:LocalAppData\\Microsoft\\Teams\\Update.exe\"\r\n\r\n      if (Test-Path $TeamsPath) {\r\n        Write-Host \"Uninstalling Teams\"\r\n        Start-Process $TeamsPath -ArgumentList -uninstall -wait\r\n\r\n        Write-Host \"Deleting Teams directory\"\r\n        Remove-Item $TeamsPath -Recurse -Force\r\n      }\r\n      "
@@ -12643,69 +11895,11 @@ $sync.configs.tweaks = @'
     "Description": "关闭/隐藏系统内的 Copilot 入口（不同版本 Windows 行为可能略有差异）。",
     "category": "z__高级优化 - 谨慎",
     "panel": "1",
-    "registry": [
-      {
-        "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsCopilot",
-        "Name": "TurnOffWindowsCopilot",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKCU:\\Software\\Policies\\Microsoft\\Windows\\WindowsCopilot",
-        "Name": "TurnOffWindowsCopilot",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
-        "Name": "ShowCopilotButton",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "1"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Shell\\Copilot",
-        "Name": "IsCopilotAvailable",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Shell\\Copilot",
-        "Name": "CopilotDisabledReason",
-        "Value": "IsEnabledForGeographicRegionFailed",
-        "Type": "String",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsCopilot",
-        "Name": "AllowCopilotRuntime",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Shell Extensions\\Blocked",
-        "Name": "{CB3B0003-8088-4EDE-8769-8B354AB2FF8C}",
-        "Value": "",
-        "Type": "String",
-        "OriginalValue": "<RemoveEntry>"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Shell\\Copilot\\BingChat",
-        "Name": "IsUserEligible",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>"
-      }
-    ],
     "InvokeScript": [
-      "\r\n      Write-Host \"Remove Copilot\"\r\n      Get-AppxPackage -AllUsers *Copilot* | Remove-AppxPackage -AllUsers\r\n      Get-AppxPackage -AllUsers Microsoft.MicrosoftOfficeHub | Remove-AppxPackage -AllUsers\r\n\r\n      $Appx = (Get-AppxPackage MicrosoftWindows.Client.CoreAI).PackageFullName\r\n\r\n      $Sid = (Get-LocalUser $Env:UserName).Sid.Value\r\n      New-Item \"HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Appx\\AppxAllUserStore\\EndOfLife\\$Sid\\$Appx\" -Force\r\n      Remove-AppxPackage $Appx\r\n      "
+      "\r\n      Get-AppxPackage -AllUsers *Copilot* | Remove-AppxPackage -AllUsers\r\n      Get-AppxPackage -AllUsers Microsoft.MicrosoftOfficeHub | Remove-AppxPackage -AllUsers\r\n\r\n      $Appx = (Get-AppxPackage MicrosoftWindows.Client.CoreAI).PackageFullName\r\n      $Sid = (Get-LocalUser $Env:UserName).Sid.Value\r\n\r\n      New-Item \"HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Appx\\AppxAllUserStore\\EndOfLife\\$Sid\\$Appx\" -Force\r\n      Remove-AppxPackage $Appx\r\n\r\n      Write-Host \"Copilot Removed\"\r\n      "
     ],
     "UndoScript": [
-      "\r\n      Write-Host \"Install Copilot\"\r\n      winget install --name Copilot --source msstore --accept-package-agreements --accept-source-agreements --silent\r\n      "
+      "\r\n      Write-Host \"Installing Copilot...\"\r\n      winget install --name Copilot --source msstore --accept-package-agreements --accept-source-agreements --silent\r\n      "
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/z--advanced-tweaks---caution/removecopilot"
   },
@@ -12747,7 +11941,7 @@ $sync.configs.tweaks = @'
       }
     ],
     "InvokeScript": [
-      "\r\n      $RazerPath = \"C:\\Windows\\Installer\\Razer\"\r\n\r\n      if (Test-Path $RazerPath) {\r\n        Remove-Item $RazerPath\\* -Recurse -Force\r\n      }\r\n      else {\r\n        New-Item -Path $RazerPath -ItemType Directory\r\n      }\r\n\r\n      icacls $RazerPath /deny \"Everyone:(W)\"\r\n      "
+      "\r\n      $RazerPath = \"C:\\Windows\\Installer\\Razer\"\r\n\r\n      if (Test-Path $RazerPath) {\r\n        Remove-Item $RazerPath\\* -Recurse -Force\r\n      } else {\r\n        New-Item -Path $RazerPath -ItemType Directory\r\n      }\r\n\r\n      icacls $RazerPath /deny \"Everyone:(W)\"\r\n      "
     ],
     "UndoScript": [
       "\r\n      icacls \"C:\\Windows\\Installer\\Razer\" /remove:d Everyone\r\n      "
@@ -12915,6 +12109,50 @@ $sync.configs.tweaks = @'
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/z--advanced-tweaks---caution/disablefso"
   },
+  "WPFToggleDisableCrossDeviceResume": {
+    "Content": "跨设备继续（Cross‑Device Resume）",
+    "Description": "控制 Windows 的“跨设备继续”功能（在电脑与手机/其他设备间继续活动）。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\CrossDeviceResume\\Configuration",
+        "Name": "IsResumeAllowed",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/disablecrossdeviceresume"
+  },
+  "WPFToggleDetailedBSoD": {
+    "Content": "详细蓝屏信息",
+    "Description": "蓝屏时显示更详细的信息（对排障更友好）。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+        "Name": "DisplayParameters",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "false"
+      },
+      {
+        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
+        "Name": "DisableEmoticon",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "false"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/detailedbsod"
+  },
   "WPFToggleDarkMode": {
     "Content": "Windows 深色模式",
     "Description": "切换系统与应用深色/浅色主题。",
@@ -12947,67 +12185,53 @@ $sync.configs.tweaks = @'
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/darkmode"
   },
-  "WPFToggleBingSearch": {
-    "Content": "开始菜单搜索 Bing 网页结果",
-    "Description": "控制开始菜单搜索是否包含 Bing 网页结果（关掉更隐私、也更干净）。",
+  "WPFToggleShowExt": {
+    "Content": "显示文件扩展名",
+    "Description": "在资源管理器中显示文件扩展名（推荐，防止伪装文件）。",
     "category": "个性化选项",
     "panel": "2",
     "Type": "Toggle",
     "registry": [
       {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
-        "Name": "BingSearchEnabled",
+        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "Name": "HideFileExt",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "false"
+      }
+    ],
+    "InvokeScript": [
+      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
+    ],
+    "UndoScript": [
+      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/showext"
+  },
+  "WPFToggleHiddenFiles": {
+    "Content": "显示隐藏文件",
+    "Description": "在资源管理器中显示隐藏文件。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "Name": "Hidden",
         "Value": "1",
         "Type": "DWord",
         "OriginalValue": "0",
-        "DefaultState": "true"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/bingsearch"
-  },
-  "WPFToggleStandbyFix": {
-    "Content": "现代待机修复",
-    "Description": "在 S0 睡眠期间禁用网络连接，减少现代笔记本待机发热或偷跑电。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
-        "Name": "ACSettingIndex",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>",
-        "DefaultState": "true"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/standbyfix"
-  },
-  "WPFToggleNumLock": {
-    "Content": "开机自动开启 NumLock",
-    "Description": "控制开机后 NumLock 是否默认开启。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKU:\\.Default\\Control Panel\\Keyboard",
-        "Name": "InitialKeyboardIndicators",
-        "Value": "2",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "false"
-      },
-      {
-        "Path": "HKCU:\\Control Panel\\Keyboard",
-        "Name": "InitialKeyboardIndicators",
-        "Value": "2",
-        "Type": "DWord",
-        "OriginalValue": "0",
         "DefaultState": "false"
       }
     ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/numlock"
+    "InvokeScript": [
+      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
+    ],
+    "UndoScript": [
+      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/hiddenfiles"
   },
   "WPFToggleVerboseLogon": {
     "Content": "登录时显示详细状态信息",
@@ -13026,116 +12250,6 @@ $sync.configs.tweaks = @'
       }
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/verboselogon"
-  },
-  "WPFToggleStartMenuRecommendations": {
-    "Content": "开始菜单显示“推荐”",
-    "Description": "控制开始菜单是否显示“推荐”区域内容。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Start",
-        "Name": "HideRecommendedSection",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "1",
-        "DefaultState": "true"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Education",
-        "Name": "IsEducationEnvironment",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "1",
-        "DefaultState": "true"
-      },
-      {
-        "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
-        "Name": "HideRecommendedSection",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "1",
-        "DefaultState": "true"
-      }
-    ],
-    "InvokeScript": [
-      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
-    ],
-    "UndoScript": [
-      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/startmenurecommendations"
-  },
-  "WPFToggleHideSettingsHome": {
-    "Content": "移除“设置”首页",
-    "Description": "在 Windows 11 中移除“设置”应用的首页（Home）入口/内容。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
-        "Name": "SettingsPageVisibility",
-        "Value": "hide:home",
-        "Type": "String",
-        "OriginalValue": "show:home",
-        "DefaultState": "false"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/hidesettingshome"
-  },
-  "WPFToggleMouseAcceleration": {
-    "Content": "鼠标加速",
-    "Description": "开关鼠标加速（关闭后鼠标更线性，适合游戏）。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\Control Panel\\Mouse",
-        "Name": "MouseSpeed",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "true"
-      },
-      {
-        "Path": "HKCU:\\Control Panel\\Mouse",
-        "Name": "MouseThreshold1",
-        "Value": "6",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "true"
-      },
-      {
-        "Path": "HKCU:\\Control Panel\\Mouse",
-        "Name": "MouseThreshold2",
-        "Value": "10",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "true"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/mouseacceleration"
-  },
-  "WPFToggleStickyKeys": {
-    "Content": "粘滞键",
-    "Description": "开关粘滞键（连续按 Shift 触发的辅助功能）。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\Control Panel\\Accessibility\\StickyKeys",
-        "Name": "Flags",
-        "Value": "506",
-        "Type": "DWord",
-        "OriginalValue": "58",
-        "DefaultState": "true"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/stickykeys"
   },
   "WPFToggleNewOutlook": {
     "Content": "新版 Outlook",
@@ -13179,6 +12293,25 @@ $sync.configs.tweaks = @'
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/newoutlook"
   },
+  "WPFToggleScrollbars": {
+    "Content": "始终显示滚动条",
+    "Description": "开启后滚动条会始终可见；关闭后 Windows 会在不使用时自动隐藏滚动条。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Control Panel\\Accessibility",
+        "Name": "DynamicScrollbars",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "false",
+        "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/scrollbars"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/scrollbars"
+  },
   "WPFToggleMultiplaneOverlay": {
     "Content": "禁用 MPO（多平面叠加）",
     "Description": "禁用 MPO（多平面叠加）。某些显卡/驱动下可缓解闪屏/黑屏/画面撕裂；但可能略增耗电。",
@@ -13189,28 +12322,194 @@ $sync.configs.tweaks = @'
       {
         "Path": "HKLM:\\SOFTWARE\\Microsoft\\Windows\\Dwm",
         "Name": "OverlayTestMode",
-        "Value": "5",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "5",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/multiplaneoverlay"
+  },
+  "WPFToggleMouseAcceleration": {
+    "Content": "鼠标加速",
+    "Description": "开关鼠标加速（关闭后鼠标更线性，适合游戏）。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Control Panel\\Mouse",
+        "Name": "MouseSpeed",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "true"
+      },
+      {
+        "Path": "HKCU:\\Control Panel\\Mouse",
+        "Name": "MouseThreshold1",
+        "Value": "6",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "true"
+      },
+      {
+        "Path": "HKCU:\\Control Panel\\Mouse",
+        "Name": "MouseThreshold2",
+        "Value": "10",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/mouseacceleration"
+  },
+  "WPFToggleNumLock": {
+    "Content": "开机自动开启 NumLock",
+    "Description": "控制开机后 NumLock 是否默认开启。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKU:\\.Default\\Control Panel\\Keyboard",
+        "Name": "InitialKeyboardIndicators",
+        "Value": "2",
+        "Type": "String",
+        "OriginalValue": "0",
+        "DefaultState": "false"
+      },
+      {
+        "Path": "HKCU:\\Control Panel\\Keyboard",
+        "Name": "InitialKeyboardIndicators",
+        "Value": "2",
+        "Type": "String",
+        "OriginalValue": "0",
+        "DefaultState": "false"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/numlock"
+  },
+  "WPFToggleStandbyFix": {
+    "Content": "现代待机修复",
+    "Description": "在 S0 睡眠期间禁用网络连接，减少现代笔记本待机发热或偷跑电。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Power\\PowerSettings\\f15576e8-98b7-4186-b944-eafa664402d9",
+        "Name": "ACSettingIndex",
+        "Value": "1",
+        "Type": "DWord",
+        "OriginalValue": "0",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/standbyfix"
+  },
+  "WPFToggleS3Sleep": {
+    "Content": "S3 睡眠（传统睡眠）",
+    "Description": "切换到传统 S3 睡眠（若硬件/BIOS 支持）。有助于解决某些“睡眠唤醒异常”。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power",
+        "Name": "PlatformAoAcOverride",
+        "Value": "0",
         "Type": "DWord",
         "OriginalValue": "<RemoveEntry>",
         "DefaultState": "false"
       }
     ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/multiplaneoverlay"
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/s3sleep"
   },
-  "WPFToggleHiddenFiles": {
-    "Content": "显示隐藏文件",
-    "Description": "在资源管理器中显示隐藏文件。",
+  "WPFToggleHideSettingsHome": {
+    "Content": "移除“设置”首页",
+    "Description": "在 Windows 11 中移除“设置”应用的首页（Home）入口/内容。",
     "category": "个性化选项",
     "panel": "2",
     "Type": "Toggle",
     "registry": [
       {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
-        "Name": "Hidden",
+        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+        "Name": "SettingsPageVisibility",
+        "Value": "show:home",
+        "Type": "String",
+        "OriginalValue": "hide:home",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/hidesettingshome"
+  },
+  "WPFToggleBingSearch": {
+    "Content": "开始菜单搜索 Bing 网页结果",
+    "Description": "控制开始菜单搜索是否包含 Bing 网页结果（关掉更隐私、也更干净）。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Search",
+        "Name": "BingSearchEnabled",
         "Value": "1",
         "Type": "DWord",
         "OriginalValue": "0",
-        "DefaultState": "false"
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/bingsearch"
+  },
+  "WPFToggleLoginBlur": {
+    "Content": "登录界面亚克力模糊",
+    "Description": "控制 Windows 10/11 登录界面背景的亚克力模糊效果。关闭后登录背景会更清晰。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\System",
+        "Name": "DisableAcrylicBackgroundOnLogon",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/loginblur"
+  },
+  "WPFToggleStartMenuRecommendations": {
+    "Content": "开始菜单显示“推荐”",
+    "Description": "控制开始菜单是否显示“推荐”区域内容。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKLM:\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Start",
+        "Name": "HideRecommendedSection",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "true"
+      },
+      {
+        "Path": "HKLM:\\SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\Education",
+        "Name": "IsEducationEnvironment",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "true"
+      },
+      {
+        "Path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer",
+        "Name": "HideRecommendedSection",
+        "Value": "0",
+        "Type": "DWord",
+        "OriginalValue": "1",
+        "DefaultState": "true"
       }
     ],
     "InvokeScript": [
@@ -13219,22 +12518,40 @@ $sync.configs.tweaks = @'
     "UndoScript": [
       "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
     ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/hiddenfiles"
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/startmenurecommendations"
   },
-  "WPFToggleShowExt": {
-    "Content": "显示文件扩展名",
-    "Description": "在资源管理器中显示文件扩展名（推荐，防止伪装文件）。",
+  "WPFToggleStickyKeys": {
+    "Content": "粘滞键",
+    "Description": "开关粘滞键（连续按 Shift 触发的辅助功能）。",
+    "category": "个性化选项",
+    "panel": "2",
+    "Type": "Toggle",
+    "registry": [
+      {
+        "Path": "HKCU:\\Control Panel\\Accessibility\\StickyKeys",
+        "Name": "Flags",
+        "Value": "506",
+        "Type": "DWord",
+        "OriginalValue": "58",
+        "DefaultState": "true"
+      }
+    ],
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/stickykeys"
+  },
+  "WPFToggleTaskbarAlignment": {
+    "Content": "任务栏图标居中",
+    "Description": "切换任务栏图标居中/靠左（Win11）。",
     "category": "个性化选项",
     "panel": "2",
     "Type": "Toggle",
     "registry": [
       {
         "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
-        "Name": "HideFileExt",
-        "Value": "0",
+        "Name": "TaskbarAl",
+        "Value": "1",
         "Type": "DWord",
-        "OriginalValue": "1",
-        "DefaultState": "false"
+        "OriginalValue": "0",
+        "DefaultState": "true"
       }
     ],
     "InvokeScript": [
@@ -13243,7 +12560,7 @@ $sync.configs.tweaks = @'
     "UndoScript": [
       "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
     ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/showext"
+    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/taskbaralignment"
   },
   "WPFToggleTaskbarSearch": {
     "Content": "任务栏搜索按钮",
@@ -13280,74 +12597,6 @@ $sync.configs.tweaks = @'
       }
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/taskview"
-  },
-  "WPFToggleTaskbarAlignment": {
-    "Content": "任务栏图标居中",
-    "Description": "切换任务栏图标居中/靠左（Win11）。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
-        "Name": "TaskbarAl",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "true"
-      }
-    ],
-    "InvokeScript": [
-      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
-    ],
-    "UndoScript": [
-      "\r\n      Invoke-WinUtilExplorerUpdate -action \"restart\"\r\n      "
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/taskbaralignment"
-  },
-  "WPFToggleDetailedBSoD": {
-    "Content": "详细蓝屏信息",
-    "Description": "蓝屏时显示更详细的信息（对排障更友好）。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
-        "Name": "DisplayParameters",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "false"
-      },
-      {
-        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CrashControl",
-        "Name": "DisableEmoticon",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "false"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/detailedbsod"
-  },
-  "WPFToggleS3Sleep": {
-    "Content": "S3 睡眠（传统睡眠）",
-    "Description": "切换到传统 S3 睡眠（若硬件/BIOS 支持）。有助于解决某些“睡眠唤醒异常”。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Power",
-        "Name": "PlatformAoAcOverride",
-        "Value": "0",
-        "Type": "DWord",
-        "OriginalValue": "<RemoveEntry>",
-        "DefaultState": "false"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/s3sleep"
   },
   "WPFOOSUbutton": {
     "Content": "运行 O&O ShutUp10++（隐私工具）",
@@ -13392,24 +12641,6 @@ $sync.configs.tweaks = @'
       "\r\n      # Previously detected folders\r\n      $bags = \"HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\Bags\"\r\n\r\n      # Folder types lookup table\r\n      $bagMRU = \"HKCU:\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\BagMRU\"\r\n\r\n      # Flush Explorer view database\r\n      Remove-Item -Path $bags -Recurse -Force\r\n      Write-Host \"Removed $bags\"\r\n\r\n      Remove-Item -Path $bagMRU -Recurse -Force\r\n      Write-Host \"Removed $bagMRU\"\r\n\r\n      Write-Host Please sign out and back in, or restart your computer to apply the changes!\r\n      "
     ],
     "link": "https://winutil.christitus.com/dev/tweaks/essential-tweaks/disableexplorerautodiscovery"
-  },
-  "WPFToggleDisableCrossDeviceResume": {
-    "Content": "跨设备继续（Cross‑Device Resume）",
-    "Description": "控制 Windows 的“跨设备继续”功能（在电脑与手机/其他设备间继续活动）。",
-    "category": "个性化选项",
-    "panel": "2",
-    "Type": "Toggle",
-    "registry": [
-      {
-        "Path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\CrossDeviceResume\\Configuration",
-        "Name": "IsResumeAllowed",
-        "Value": "1",
-        "Type": "DWord",
-        "OriginalValue": "0",
-        "DefaultState": "true"
-      }
-    ],
-    "link": "https://winutil.christitus.com/dev/tweaks/customize-preferences/disablecrossdeviceresume"
   }
 }
 '@ | ConvertFrom-Json
@@ -15517,16 +14748,18 @@ $scripts = @(
         ) -Recurse -Force -ErrorAction 'SilentlyContinue';
     };
     {
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate              /f;
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions                 /f;
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v UseWUServer               /f;
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"    /v DisableWindowsUpdateAccess /f;
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"    /v WUServer                  /f;
-        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"    /v WUStatusServer            /f;
+        reg.exe delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v OneDriveSetup /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoUpdate /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v UseWUServer /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v DisableWindowsUpdateAccess /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v WUServer /f;
+        reg.exe delete "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate" /v WUStatusServer /f;
         reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config" /v DODownloadMode /f;
-        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\BITS"         /v Start /t REG_DWORD /d 3 /f;
-        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\wuauserv"     /v Start /t REG_DWORD /d 3 /f;
-        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\UsoSvc"       /v Start /t REG_DWORD /d 2 /f;
+        reg.exe add "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR" /v AppCaptureEnabled /t REG_DWORD /d 0 /f;
+        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\BITS" /v Start /t REG_DWORD /d 3 /f;
+        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\wuauserv" /v Start /t REG_DWORD /d 3 /f;
+        reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\UsoSvc" /v Start /t REG_DWORD /d 2 /f;
         reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\WaaSMedicSvc" /v Start /t REG_DWORD /d 3 /f;
     };
     {
@@ -15551,6 +14784,9 @@ $scripts = @(
         Remove-Item -Path $viveZip -Force;
         Start-Process -FilePath (Join-Path $viveDir 'ViVeTool.exe') -ArgumentList '/disable /id:47205210' -Wait -NoNewWindow;
         Remove-Item -Path $viveDir -Recurse -Force;
+    };
+    {
+        Start-Process C:\Windows\System32\OneDriveSetup.exe -ArgumentList /uninstall
     };
     {
         if( (Get-BitLockerVolume -MountPoint $Env:SystemDrive).ProtectionStatus -eq 'On' ) {
