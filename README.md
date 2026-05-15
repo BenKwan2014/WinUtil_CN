@@ -52,7 +52,7 @@ irm "https://cdn.jsdelivr.net/gh/constansino/WinUtil_CN@main/winutil.zh_CN.ps1" 
 irm "https://github.com/constansino/WinUtil_CN/releases/latest/download/winutil.zh_CN.ps1" | iex
 ```
 
-说明：Windows PowerShell 5.1 对 GitHub Release 或 CDN 资产的远程管道执行有时会按非 UTF-8 解码，导致中文乱码。优先使用上面的 raw 链接，它会以 `text/plain; charset=utf-8` 返回脚本内容。若必须使用 Release 链接且仍遇到乱码，可以改用下面的 UTF-8 解码命令：
+说明：Windows PowerShell 5.1 对 GitHub Release 或 CDN 资产的远程管道执行有时会按非 UTF-8 解码，导致中文乱码。优先使用上面的 raw 链接，它会以 `text/plain; charset=utf-8` 返回脚本内容。当前 Release 的 `winutil.zh_CN.ps1` 是纯 ASCII 启动器，会再按 UTF-8 读取完整中文脚本。若你直接运行其他 Release/CDN 脚本仍遇到乱码，可以改用下面的 UTF-8 解码命令：
 
 ```powershell
 $u="https://github.com/constansino/WinUtil_CN/releases/latest/download/winutil.zh_CN.ps1"; $r=iwr $u -UseBasicParsing; $r.RawContentStream.Position=0; iex ([IO.StreamReader]::new($r.RawContentStream,[Text.Encoding]::UTF8,$true).ReadToEnd())
